@@ -4,12 +4,14 @@
   <name>cyclonedds</name>
   <version>0.1.0</version>
   <description>Performant and robust open-source DDS implementation.</description>
-  <maintainer email="logans@cottsay.net">Scott K Logan</maintainer>
+  <maintainer email="scott@openrobotics.org">Scott K Logan</maintainer>
   <license>EPL-2.0</license>
 
   <buildtool_depend>cmake</buildtool_depend>
   <buildtool_depend>java</buildtool_depend>
   <buildtool_depend>maven</buildtool_depend>
+
+  <build_export_depend>java</build_export_depend>
 
   <build_depend>libcunit-dev</build_depend>
 
