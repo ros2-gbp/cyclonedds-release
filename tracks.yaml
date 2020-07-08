@@ -13,7 +13,7 @@ tracks:
       -i :{release_inc} --os-name debian --os-not-required
     - git-bloom-generate -y rosrpm --prefix release/:{ros_distro} :{ros_distro} -i
       :{release_inc}
-    devel_branch: master
+    devel_branch: releases/0.5.x
     last_release: 76fa68808682a15dd8aff26da20622ac574fa1a1
     last_version: 0.5.1
     name: cyclonedds
