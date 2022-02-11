@@ -9,14 +9,13 @@
 #
 # SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 #
-if(CMAKE_CROSSCOMPILING)
-  # Do not build preprocessor if cross compiling
+
+if (NOT BUILD_IDLC)
   return()
 endif()
 
 include(CheckIncludeFile)
 include(CheckSymbolExists)
-include(CheckTargetCPU)
 include(CheckTypeSize)
 include(GenerateExportHeader)
 
@@ -104,7 +103,6 @@ if(idlpp_system STREQUAL "SYS_FREEBSD")
   endif()
 endif()
 
-check_target_cpu(idlpp_cpu)
 check_include_file(stdint.h idlpp_have_stdint_h)
 check_include_file(inttypes.h idlpp_have_inttypes_h)
 have_type("intmax_t" idlpp_have_intmax_t)

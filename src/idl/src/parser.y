@@ -35,21 +35,22 @@ _Pragma("GCC diagnostic ignored \"-Wanalyzer-free-of-non-heap\"")
 #endif
 #endif
 
-static void yyerror(idl_location_t *, idl_pstate_t *, const char *);
+static void yyerror(idl_location_t *, idl_pstate_t *, idl_retcode_t *, const char *);
 
 /* convenience macros to complement YYABORT */
 #define NO_MEMORY() \
   do { \
     yylen = 0; \
-    goto yyexhaustedlab; \
+    *result = IDL_RETCODE_NO_MEMORY; \
+    YYABORT; \
   } while(0)
 
-#define SEMANTIC_ERROR(state, loc, ...) \
+#define SEMANTIC_ERROR(loc, ...) \
   do { \
-    idl_error(state, loc, __VA_ARGS__); \
+    idl_error(pstate, loc, __VA_ARGS__); \
     yylen = 0; /* pop right-hand side tokens */ \
-    yyresult = IDL_RETCODE_SEMANTIC_ERROR; \
-    goto yyreturn; \
+    *result = IDL_RETCODE_SEMANTIC_ERROR; \
+    YYABORT; \
   } while(0)
 
 #define YYLLOC_DEFAULT(Cur, Rhs, N) \
@@ -75,19 +76,12 @@ static void yyerror(idl_location_t *, idl_pstate_t *, const char *);
     switch ((_ret_ = (action))) { \
       case IDL_RETCODE_OK: \
         break; \
-      case IDL_RETCODE_NO_MEMORY: \
-        yylen = 0; /* pop right-hand side tokens */ \
-        (void)(except);\
-        goto yyexhaustedlab; \
-      case IDL_RETCODE_SYNTAX_ERROR: \
-        yylen = 0; /* pop right-hand side tokens */ \
-        (void)(except); \
-        goto yyabortlab; \
       default: \
         yylen = 0; \
-        yyresult = _ret_; \
         (void)(except); \
-        goto yyreturn; \
+        *result = (_ret_); \
+        YYABORT; \
+        break; \
     } \
   } while(0)
 
@@ -163,6 +157,7 @@ void idl_yypstate_delete_stack(idl_yypstate *yyps);
 %locations
 
 %param { idl_pstate_t *pstate }
+%parse-param { idl_retcode_t *result }
 
 %token-table
 
@@ -190,6 +185,7 @@ void idl_yypstate_delete_stack(idl_yypstate *yyps);
 %type <struct_dcl> struct_def struct_header
 %type <member> members member struct_body
 %type <union_dcl> union_def union_header
+%type <switch_type_spec> switch_header
 %type <_case> switch_body case element_spec
 %type <case_label> case_labels case_label
 %type <enum_dcl> enum_def
@@ -200,7 +196,7 @@ void idl_yypstate_delete_stack(idl_yypstate *yyps);
 %type <const_dcl> const_dcl
 %type <annotation> annotation_dcl annotation_header
 %type <annotation_member> annotation_body annotation_member
-%type <annotation_appl> annotations annotation_appl annotation_appls
+%type <annotation_appl> annotations annotation_appl annotation_appls annotation_appl_header
 %type <annotation_appl_param> annotation_appl_params
                               annotation_appl_keyword_param
                               annotation_appl_keyword_params
@@ -220,6 +216,7 @@ void idl_yypstate_delete_stack(idl_yypstate *yyps);
                                      <string> <module_dcl> <struct_dcl> <member> <union_dcl>
                                      <_case> <case_label> <enum_dcl> <enumerator> <declarator> <typedef_dcl>
                                      <const_dcl> <annotation> <annotation_member> <annotation_appl> <annotation_appl_param>
+                                     <switch_type_spec>
 
 %token IDL_TOKEN_LINE_COMMENT
 %token IDL_TOKEN_COMMENT
@@ -366,7 +363,7 @@ const_type:
         TRY(idl_resolve(pstate, 0u, $1, &declaration));
         node = idl_unalias(declaration->node, 0u);
         if (!(idl_mask(node) & (IDL_BASE_TYPE|IDL_STRING|IDL_ENUM)))
-          SEMANTIC_ERROR(pstate, &@1, fmt, $1->identifier);
+          SEMANTIC_ERROR(&@1, fmt, $1->identifier);
         $$ = idl_reference_node((idl_node_t *)declaration->node);
         idl_delete_scoped_name($1);
       }
@@ -470,7 +467,7 @@ primary_expr:
             "Scoped name '%s' does not resolve to an enumerator or a contant";
           TRY(idl_resolve(pstate, 0u, $1, &declaration));
           if (!(idl_mask(declaration->node) & (IDL_CONST|IDL_ENUMERATOR)))
-            SEMANTIC_ERROR(pstate, &@1, fmt, $1->identifier);
+            SEMANTIC_ERROR(&@1, fmt, $1->identifier);
           $$ = idl_reference_node((idl_node_t *)declaration->node);
         }
         idl_delete_scoped_name($1);
@@ -605,7 +602,7 @@ simple_type_spec:
           "Scoped name '%s' does not resolve to a type";
         TRY(idl_resolve(pstate, 0u, $1, &declaration));
         if (!declaration || !idl_is_type_spec(declaration->node))
-          SEMANTIC_ERROR(pstate, &@1, fmt, $1->identifier);
+          SEMANTIC_ERROR(&@1, fmt, $1->identifier);
         $$ = idl_reference_node((idl_node_t *)declaration->node);
         idl_delete_scoped_name($1);
       }
@@ -718,7 +715,7 @@ struct_inherit_spec:
         TRY(idl_resolve(pstate, 0u, $2, &declaration));
         node = idl_unalias(declaration->node, 0u);
         if (!idl_is_struct(node))
-          SEMANTIC_ERROR(pstate, &@2, fmt, $2->identifier);
+          SEMANTIC_ERROR(&@2, fmt, $2->identifier);
         TRY(idl_create_inherit_spec(pstate, &@2, idl_reference_node(node), &$$));
         idl_delete_scoped_name($2);
       }
@@ -759,15 +756,18 @@ union_def:
   ;
 
 union_header:
-    "union" identifier "switch" '(' annotations switch_type_spec
-      { idl_switch_type_spec_t *node = NULL;
-        TRY(idl_create_switch_type_spec(pstate, &@6, $6, &node));
-        TRY_EXCEPT(idl_annotate(pstate, node, $5), idl_delete_node(node));
-        $<node>$ = node;
-      }
-    ')'
-      { idl_switch_type_spec_t *node = $<node>7;
-        TRY(idl_create_union(pstate, LOC(@1.first, @8.last), $2, node, &$$));
+    "union" identifier switch_header
+      { TRY(idl_create_union(pstate, LOC(@1.first, @3.last), $2, $3, &$$)); }
+  ;
+
+switch_header:
+    "switch" '(' annotations switch_type_spec ')'
+      { /* switch_header action is a separate non-terminal, as opposed to a
+           mid-rule action, to avoid freeing the type specifier twice (once
+           through destruction of the type-spec and once through destruction
+           of the switch-type-spec) if union creation fails */
+        TRY(idl_create_switch_type_spec(pstate, &@4, $4, &$$));
+        TRY_EXCEPT(idl_annotate(pstate, $$, $3), idl_delete_node($$));
       }
   ;
 
@@ -895,7 +895,7 @@ identifier:
         else if (pstate->parser.state == IDL_PARSE_ANNOTATION)
           n = 0;
         else if (!(n = ($1[0] == '_')) && idl_iskeyword(pstate, $1, nocase))
-          SEMANTIC_ERROR(pstate, &@1, "Identifier '%s' collides with a keyword", $1);
+          SEMANTIC_ERROR(&@1, "Identifier '%s' collides with a keyword", $1);
 
         if (pstate->parser.state != IDL_PARSE_UNKNOWN_ANNOTATION_APPL_PARAMS)
           TRY(idl_create_name(pstate, &@1, idl_strdup($1+n), &$$));
@@ -973,31 +973,35 @@ annotation_appls:
   ;
 
 annotation_appl:
+    annotation_appl_header annotation_appl_params
+      { if (pstate->parser.state != IDL_PARSE_UNKNOWN_ANNOTATION_APPL_PARAMS)
+          TRY(idl_finalize_annotation_appl(pstate, LOC(@1.first, @2.last), $1, $2));
+        pstate->parser.state = IDL_PARSE;
+        pstate->annotation_scope = NULL;
+        $$ = $1;
+      }
+  ;
+
+annotation_appl_header:
     "@"
       { pstate->parser.state = IDL_PARSE_ANNOTATION_APPL; }
     annotation_appl_name
-      { idl_annotation_appl_t *node = NULL;
-        const idl_annotation_t *annotation;
+      { const idl_annotation_t *annotation;
         const idl_declaration_t *declaration =
           idl_find_scoped_name(pstate, NULL, $3, IDL_FIND_ANNOTATION);
 
         pstate->annotations = true; /* register annotation occurence */
-        if (!declaration) {
-          pstate->parser.state = IDL_PARSE_UNKNOWN_ANNOTATION_APPL_PARAMS;
-        } else {
+
+        $$ = NULL;
+        if (declaration) {
           annotation = idl_reference_node((idl_node_t *)declaration->node);
-          TRY(idl_create_annotation_appl(pstate, LOC(@1.first, @3.last), annotation, &node));
+          TRY(idl_create_annotation_appl(pstate, LOC(@1.first, @3.last), annotation, &$$));
           pstate->parser.state = IDL_PARSE_ANNOTATION_APPL_PARAMS;
           pstate->annotation_scope = declaration->scope;
+        } else {
+          pstate->parser.state = IDL_PARSE_UNKNOWN_ANNOTATION_APPL_PARAMS;
         }
-        $<annotation_appl>$ = node;
-      }
-    annotation_appl_params
-      { if (pstate->parser.state != IDL_PARSE_UNKNOWN_ANNOTATION_APPL_PARAMS)
-          TRY(idl_finalize_annotation_appl(pstate, LOC(@1.first, @5.last), $<annotation_appl>4, $5));
-        pstate->parser.state = IDL_PARSE;
-        pstate->annotation_scope = NULL;
-        $$ = $<annotation_appl>4;
+
         idl_delete_scoped_name($3);
       }
   ;
@@ -1040,7 +1044,7 @@ annotation_appl_keyword_param:
           if (declaration && (idl_mask(declaration->node) & IDL_DECLARATOR))
             node = (idl_annotation_member_t *)((const idl_node_t *)declaration->node)->parent;
           if (!node || !(idl_mask(node) & IDL_ANNOTATION_MEMBER))
-            SEMANTIC_ERROR(pstate, &@1, fmt, $1->identifier);
+            SEMANTIC_ERROR(&@1, fmt, $1->identifier);
           node = idl_reference_node((idl_node_t *)node);
         }
         $<annotation_member>$ = node;
@@ -1081,7 +1085,7 @@ void idl_yypstate_delete_stack(idl_yypstate *yyps)
       while (yyssp != yyss)
         {
           yydestruct ("Cleanup: popping",
-                      yystos[*yyssp], yyvsp, yylsp, NULL);
+                      yystos[*yyssp], yyvsp, yylsp, NULL, NULL);
           YYPOPSTACK (1);
         }
     }
@@ -1102,7 +1106,14 @@ int idl_iskeyword(idl_pstate_t *pstate, const char *str, int nc)
         && cmp(yytname[i] + 1, str, n) == 0
         && yytname[i][n + 1] == '"'
         && yytname[i][n + 2] == '\0') {
+#if YYBISON >= 30800
+      // "yytname" is long deprecated and "yytokname" has been removed in bison 3.8.
+      // This hack seems to be enough to buy us some time to rewrite the keyword
+      // recognition to not rely on anything deprecated
+      toknum = (int) (255 + i);
+#else
       toknum = yytoknum[i];
+#endif
     }
   }
 
@@ -1131,7 +1142,8 @@ int idl_iskeyword(idl_pstate_t *pstate, const char *str, int nc)
 }
 
 static void
-yyerror(idl_location_t *loc, idl_pstate_t *pstate, const char *str)
+yyerror(idl_location_t *loc, idl_pstate_t *pstate, idl_retcode_t *result, const char *str)
 {
   idl_error(pstate, loc, str);
+  *result = IDL_RETCODE_SYNTAX_ERROR;
 }

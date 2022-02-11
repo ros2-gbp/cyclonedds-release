@@ -19,17 +19,21 @@
 #if WIN32
 #include <Windows.h>
 static const char sep[] = "/\\";
-static const char lib[] = "";
+static const char lib[] = "cyclonedds";
 static const char ext[] = "dll";
+#define SUBPROCESS_POPEN _popen
+#define SUBPROCESS_PCLOSE _pclose
 #else
 #include <dlfcn.h>
 static const char sep[] = "/";
-static const char lib[] = "lib";
+static const char lib[] = "libcyclonedds";
 #if __APPLE__
 static const char ext[] = "dylib";
 #else
 static const char ext[] = "so";
 #endif
+#define SUBPROCESS_POPEN popen
+#define SUBPROCESS_PCLOSE pclose
 #endif
 
 #include "plugin.h"
@@ -64,6 +68,85 @@ static void *loadsym(void *handle, const char *symbol)
 #endif
 }
 
+static void liberror(char *buffer, size_t bufferlen)
+{
+  assert(buffer != NULL);
+  assert(bufferlen > 0);
+#if WIN32
+  DWORD error = GetLastError();
+  (void)FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM |
+    FORMAT_MESSAGE_IGNORE_INSERTS |
+    FORMAT_MESSAGE_MAX_WIDTH_MASK,
+    NULL,
+    (DWORD)error,
+    0,
+    (LPTSTR)buffer,
+    (DWORD)(bufferlen - 1),
+    NULL);
+  SetLastError(error);
+#else
+  strncpy(buffer, dlerror(), bufferlen - 1);
+#endif
+  buffer[bufferlen - 1] = 0; /* ensure final zero in all cases */
+}
+
+#define SUBPROCESS_PIPE_MEMORY_LIMIT 1024 * 1024
+static int run_library_locator(const char *command, char **out_output) {
+  size_t output_size = 0;
+  size_t output_pt = 0;
+  char *output = NULL;
+  FILE *pipe;
+  int ret = 0;
+  bool success = true;
+  int c;
+
+  if ((pipe = SUBPROCESS_POPEN (command, "r")) == NULL) {
+    // broken-pipe
+    return -1;
+  }
+
+  while ((c = fgetc(pipe)) != EOF) {
+    if (c == '\n' || c == '\r') {
+      break;
+    }
+
+    if (output_pt == output_size) {
+      output_size += 128;
+      if (output_size > SUBPROCESS_PIPE_MEMORY_LIMIT) {
+        success = false;
+        break;
+      }
+
+      char* new = (char*) realloc(output, output_size);
+      if (!new) {
+        success = false;
+        break;
+      }
+      output = new;
+    }
+
+    output[output_pt++] = (char) c;
+  }
+
+  ret = SUBPROCESS_PCLOSE (pipe);
+
+  if (success && output != NULL && ret == 0) {
+    // ensure proper string termination (might be newline)
+    output[output_pt] = '\0';
+    *out_output = output;
+
+    return 0;
+  }
+
+  // error
+  if (output) {
+    free(output);
+  }
+
+  return -1;
+}
+
+
 extern int idlc_generate(const idl_pstate_t *pstate);
 
 int32_t
@@ -84,17 +167,33 @@ idlc_load_generator(idlc_generator_plugin_t *plugin, const char *lang)
     return 0;
   }
 
+  /* special case for python generator
+        The 'active' idlpy library is dependend on which python is active. Idlpy is installed
+        as part of the cyclonedds python package and it can very well be that multiple installations
+        are present on the system, by use of virtual environments, user installs and system installs.
+        Sadly activating a python distribution does not set a any library loading paths. However,
+        the python cyclonedds package has a __idlc__ module that prints the path when executed. The
+        'python3' executable is always guaranteed to point to the active python so we always get the
+        correct idlpy library.
+   */
+  if (idl_strcasecmp(lang, "py") == 0) {
+    if (run_library_locator("python3 -m cyclonedds.__idlc__", &file) != 0) {
+      return -1;
+    }
+    path = (const char*) file;
+  }
+
   /* figure out if user passed library or language */
-  if ((sep[0] && strchr(lang, sep[0])) || (sep[1] && strchr(lang, sep[1]))) {
-    path = lang;
+  else if ((sep[0] && strchr(lang, sep[0])) || (sep[1] && strchr(lang, sep[1]))) {
+    path = lang; /* lang includes a directory separator, it is a path */
   } else if (len > extlen && strcmp(lang + (len - extlen), ext) == 0) {
-    path = lang;
+    path = lang; /* lang terminates with extension of plugins (libs), it is a path */
   } else {
     int cnt;
-    const char fmt[] = "%sidl%s.%s";
+    const char fmt[] = "%sidl%s.%s"; /* builds the library name based on 'lang' */
     cnt = snprintf(buf, sizeof(buf), fmt, lib, lang, ext);
     assert(cnt != -1);
-    if ((size_t)cnt <= sizeof(buf)) {
+    if ((size_t)cnt < sizeof(buf)) {
       path = (const char *)buf;
     } else if (!(file = malloc((size_t)cnt+1))) {
       return -1;
@@ -105,6 +204,7 @@ idlc_load_generator(idlc_generator_plugin_t *plugin, const char *lang)
     }
   }
 
+  /* open the library */
   if ((handle = openlib(path)) || (lang != path && (handle = openlib(lang)))) {
     generate = loadsym(handle, "generate");
     if (generate) {
@@ -113,8 +213,14 @@ idlc_load_generator(idlc_generator_plugin_t *plugin, const char *lang)
       plugin->generator_options = loadsym(handle, "generator_options");
       plugin->generator_annotations = loadsym(handle, "generator_annotations");
     } else {
+      fprintf(stderr, "Symbol 'generate' not found in %s\n", lang != path ? lang : path);
       closelib(handle);
     }
+  }
+  else {
+    char errmsg[300];
+    liberror(errmsg, sizeof(errmsg));
+    fprintf(stderr, "Cannot load generator %s: %s\n", lang != path ? lang : path, errmsg);
   }
 
   if (file) {

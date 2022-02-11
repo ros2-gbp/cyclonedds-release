@@ -41,6 +41,7 @@ strategy:
       cc: gcc-10
     'Ubuntu 18.04 LTS with GCC 7 (Debug, x86_64)':
       image: ubuntu-18.04
+      coverage: on
       conanfile: conanfile102.txt
       cc: gcc-7
     'Ubuntu 20.04 LTS with Clang 10 (Debug, x86_64)':
@@ -81,7 +82,6 @@ strategy:
       toolset: v141
     'Windows 2019 with Visual Studio 2019 (Debug, x86_64)':
       image: windows-2019
-      analyzer: on
       generator: 'Visual Studio 16 2019'
     'Windows 2019 with Visual Studio 2019 (Release, x86_64)':
       image: windows-2019
