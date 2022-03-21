@@ -51,6 +51,7 @@ mkdir -p .obj-%{_target_platform} && cd .obj-%{_target_platform}
 %if !0%{?with_tests}
     -DBUILD_TESTING=OFF \
 %endif
+    -DAPPEND_PROJECT_NAME_TO_INCLUDEDIR=ON \
     ..
 
 %make_build
