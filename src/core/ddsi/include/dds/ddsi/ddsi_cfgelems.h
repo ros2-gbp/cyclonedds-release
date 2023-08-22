@@ -1,6 +1,5 @@
 /*
- * Copyright(c) 2022 ZettaScale Technology
- * Copyright(c) 2020 ADLINK Technology Limited and others
+ * Copyright(c) 2020 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -54,6 +53,15 @@ static struct cfgelem network_interface_attributes[] = {
       "multicasting data, falling back to unicast only when no multicast "
       "is available.</p>"
     )),
+  BOOL("presence_required", NULL, 1, "true",
+    MEMBEROF(ddsi_config_network_interface_listelem, cfg.presence_required),
+    FUNCTIONS(0, uf_boolean, 0, pf_boolean),
+    DESCRIPTION(
+      "<p>By default all specified network interfaces must be present, if they "
+      "are missing Cyclone will refuse to start. By explicitly setting this setting "
+      "for an interface you can instruct Cyclone to simply ignore that interface if "
+      "it is not present.</p>"
+    )),
   STRING("multicast", NULL, 1, "default",
     MEMBEROF(ddsi_config_network_interface_listelem, cfg.multicast),
     FUNCTIONS(0, uf_boolean_default, 0, pf_boolean_default),
@@ -80,6 +88,23 @@ static struct cfgelem interfaces_cfgelems[] = {
       "attribute. If you specify both they must match the same interface.</p>")),
   END_MARKER
 };
+
+static struct cfgelem entity_autonaming_attributes[] = {
+  STRING("seed", NULL, 1, "",
+    MEMBER(entity_naming_seed),
+    FUNCTIONS(0, uf_random_seed, 0, pf_random_seed),
+    DESCRIPTION(
+      "<p>Provide an initial seed for the entity naming. Your string will be "
+      "hashed to provided the random state. When provided the same sequence of "
+      "names is generated every run. If you create your entities in the same "
+      "order this will ensure they are the same between runs. If you run multiple "
+      "nodes set this via environment variable to ensure every node generates "
+      "unique names. When left empty (the default) a random starting seed is "
+      "chosen.</p>"
+    )),
+  END_MARKER
+};
+
 
 static struct cfgelem general_cfgelems[] = {
   STRING("MulticastRecvNetworkInterfaceAddresses", NULL, 1, "preferred",
@@ -276,6 +301,17 @@ static struct cfgelem general_cfgelems[] = {
     DESCRIPTION(
       "<p>When enabled, use selected network interfaces in parallel for "
       "redundancy.</p>")),
+  ENUM("EntityAutoNaming", entity_autonaming_attributes, 1, "empty",
+    MEMBER(entity_naming_mode),
+    FUNCTIONS(0, uf_entity_naming_mode, 0, pf_entity_naming_mode),
+    DESCRIPTION(
+      "<p>This element specifies the entity autonaming mode. By default set "
+      "to 'empty' which means no name will be set (but you can still use "
+      "dds_qset_entity_name). When set to 'fancy' participants, publishers, "
+      "subscribers, writers and readers will get randomly generated names. "
+      "An autonamed entity will share a 3-letter prefix with their parent "
+      "entity.</p>"),
+    VALUES("empty","fancy")),
   END_MARKER
 };
 
@@ -1350,7 +1386,7 @@ static struct cfgelem internal_cfgelems[] = {
       "<p>This setting controls the delay between sending identical "
       "acknowledgements.</p>"),
     UNIT("duration")),
-  STRING("AutoReschedNackDelay", NULL, 1, "1 s",
+  STRING("AutoReschedNackDelay", NULL, 1, "3 s",
     MEMBER(auto_resched_nack_delay),
     FUNCTIONS(0, uf_duration_inf, 0, pf_duration),
     DESCRIPTION(
@@ -1787,18 +1823,6 @@ static struct cfgelem shmem_cfgelems[] = {
     VALUES(
       "off","fatal","error","warn","info","debug","verbose"
     )),
-  INT(DEPRECATED("SubQueueCapacity"), NULL, 1, "256",
-    NOMEMBER,
-    NOFUNCTIONS,
-    DESCRIPTION("<p>Size of the history chunk queue, this is the amount of messages stored between taking from the iceoryx subscriber, exceeding this number will cause the oldest to be pushed off the queue. Should be a value between 1 and 256.</p>")),
-  INT(DEPRECATED("SubHistoryRequest"), NULL, 1, "16",
-    NOMEMBER,
-    NOFUNCTIONS,
-    DESCRIPTION("<p>The number of messages published before subscription which will be requested by a subscriber upon subscription. Should be a value between 0 and 16.</p>")),
-  INT(DEPRECATED("PubHistoryCapacity"), NULL, 1, "16",
-    NOMEMBER,
-    NOFUNCTIONS,
-    DESCRIPTION("<p>The number of messages which will be stored on the publisher for late joining subscribers. Should be a value between 0 and 16 and be equal to or larger than SubHistoryRequest.</p>")),
   END_MARKER
 };
 #endif
@@ -1818,16 +1842,6 @@ static struct cfgelem discovery_peer_cfgattrs[] = {
   END_MARKER
 };
 
-static struct cfgelem discovery_peers_group_cfgelems[] = {
-  GROUP("Peer", NULL, discovery_peer_cfgattrs, INT_MAX,
-    MEMBER(peers_group),
-    FUNCTIONS(if_peer, 0, 0, 0),
-    DESCRIPTION(
-      "<p>This element statically configures an addresses for discovery.</p>"
-    )),
-  END_MARKER
-};
-
 static struct cfgelem discovery_peers_cfgelems[] = {
   GROUP("Peer", NULL, discovery_peer_cfgattrs, INT_MAX,
     MEMBER(peers),
@@ -1835,16 +1849,6 @@ static struct cfgelem discovery_peers_cfgelems[] = {
     DESCRIPTION(
       "<p>This element statically configures an addresses for discovery.</p>"
     )),
-  GROUP("Group", discovery_peers_group_cfgelems, NULL, 1,
-    NOMEMBER,
-    NOFUNCTIONS,
-    DESCRIPTION(
-      "<p>This element statically configures a fault tolerant group of "
-      "addresses for discovery. Each member of the group is tried in "
-      "sequence until one succeeds.</p>"
-    ),
-    MAXIMUM(0)), /* Group element can occur more than once, but 1 is required
-                    because of the way its processed (for now) */
   END_MARKER
 };
 

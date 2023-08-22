@@ -1,5 +1,5 @@
 #
-# Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+# Copyright(c) 2006 to 2022 ZettaScale Technology and others
 #
 # This program and the accompanying materials are made available under the
 # terms of the Eclipse Public License v. 2.0 which is available at
@@ -17,6 +17,8 @@ else()
   add_library(ddsc)
 endif()
 
+set_property(TARGET ddsc PROPERTY C_VISIBILITY_PRESET hidden)
+
 if("${CMAKE_C_COMPILER_ID}" STREQUAL "MSVC")
   target_link_libraries(ddsc PRIVATE dbghelp)
 endif()
@@ -28,13 +30,24 @@ if(ENABLE_SSL AND OPENSSL_FOUND)
   endif()
 endif()
 
-include(CheckIPOSupported)
-check_ipo_supported(RESULT ipo_supported OUTPUT error)
-if(ipo_supported)
-  set_property(TARGET ddsc PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
-  set_property(TARGET ddsc PROPERTY INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL TRUE)
-  #-flto and debugging info do not seem to go well together
-  #set_property(TARGET ddsc PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE)
+if(ENABLE_LTO)
+  include(CheckIPOSupported)
+  check_ipo_supported(RESULT ipo_supported OUTPUT error)
+  if(ipo_supported)
+    if(ANDROID AND "${CMAKE_ANDROID_ARCH_ABI}" STREQUAL "armeabi-v7a")
+      # clang android LTO bug (only armv7 affected)
+      # https://stackoverflow.com/questions/56238019/linker-error-when-enabling-link-time-optimization-in-ndk
+      # Fixed in newer clang versions: https://reviews.llvm.org/D79919
+      # But fixed here to keep supported android api level as low as possible
+      # Tested with android ndk v20.0.5594570 (android api 29)
+      set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -flto=full")
+    else()
+      set_property(TARGET ddsc PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+      set_property(TARGET ddsc PROPERTY INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL TRUE)
+      #-flto and debugging info do not seem to go well together
+      #set_property(TARGET ddsc PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE)
+    endif()
+  endif()
 endif()
 
 # Support the OMG DDS Security within ddsc adds quite a bit of code.
@@ -113,7 +126,7 @@ install(
   LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}" COMPONENT lib
   ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}" COMPONENT lib
 )
-if (MSVC)
+if (INSTALL_PDB)
   install(FILES $<TARGET_PDB_FILE:ddsc>
     DESTINATION "${CMAKE_INSTALL_BINDIR}"
     COMPONENT dev
@@ -123,22 +136,4 @@ endif()
 
 if(BUILD_TESTING AND BUILD_IDLC)
   add_subdirectory(xtests)
-endif()
-
-if(BUILD_DOCS)
-  set(DOXYGEN_GENERATE_HTML NO)
-  set(DOXYGEN_GENERATE_XML YES)
-  set(DOXYGEN_STRIP_FROM_PATH "ddsc/include/dds/")
-  set(DOXYGEN_EXCLUDE_PATTERNS "*/tests/*")
-  set(DOXYGEN_MACRO_EXPANSION YES)
-  set(DOXYGEN_PREDEFINED
-    "__restrict="
-    "__attribute__="
-    "__declspec(x)="
-    "DDS_EXPORT="
-    "DDS_INLINE_EXPORT="
-    "DDS_DEPRECATED_EXPORT="
-    "DDSRT_STATIC_ASSERT(x)=")
-  find_package(Doxygen REQUIRED)
-  doxygen_add_docs(ddsc_api_docs "ddsc/include/dds/")
 endif()

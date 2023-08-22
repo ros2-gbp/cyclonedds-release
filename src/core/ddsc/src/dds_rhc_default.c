@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -37,7 +37,7 @@
 #include "dds/ddsi/ddsi_config_impl.h"
 #include "dds/ddsi/ddsi_domaingv.h"
 #include "dds/ddsi/q_radmin.h" /* sampleinfo */
-#include "dds/ddsi/q_entity.h" /* proxy_writer_info */
+#include "dds/ddsi/ddsi_entity.h"
 #include "dds/ddsi/ddsi_serdata.h"
 #include "dds/ddsi/ddsi_serdata_default.h"
 #ifdef DDS_HAS_LIFESPAN
@@ -542,7 +542,7 @@ ddsrt_mtime_t dds_rhc_default_deadline_missed_cb(void *hc, ddsrt_mtime_t tnow)
 
     inst->wr_iid_islive = 0;
 
-    status_cb_data_t cb_data;
+    ddsi_status_cb_data_t cb_data;
     cb_data.raw_status_id = (int) DDS_REQUESTED_DEADLINE_MISSED_STATUS_ID;
     cb_data.extra = 0;
     cb_data.handle = inst->iid;
@@ -838,7 +838,7 @@ static bool trigger_info_differs (const struct dds_rhc_default *rhc, const struc
             trig_qc->dec_sample_read != trig_qc->inc_sample_read);
 }
 
-static bool add_sample (struct dds_rhc_default *rhc, struct rhc_instance *inst, const struct ddsi_writer_info *wrinfo, const struct ddsi_serdata *sample, status_cb_data_t *cb_data, struct trigger_info_qcond *trig_qc, bool * __restrict nda)
+static bool add_sample (struct dds_rhc_default *rhc, struct rhc_instance *inst, const struct ddsi_writer_info *wrinfo, const struct ddsi_serdata *sample, ddsi_status_cb_data_t *cb_data, struct trigger_info_qcond *trig_qc, bool * __restrict nda)
 {
   struct rhc_sample *s;
 
@@ -1058,17 +1058,24 @@ static int inst_accepts_sample (const struct dds_rhc_default *rhc, const struct 
   return 1;
 }
 
-static void update_inst (struct rhc_instance *inst, const struct ddsi_writer_info * __restrict wrinfo, bool wr_iid_valid, ddsrt_wctime_t tstamp)
+static void update_inst_common (struct rhc_instance *inst, const struct ddsi_writer_info * __restrict wrinfo, ddsrt_wctime_t tstamp)
 {
   inst->tstamp = tstamp;
-  inst->wr_iid_islive = wr_iid_valid;
-  if (wr_iid_valid)
-  {
-    inst->wr_iid = wrinfo->iid;
-    if (inst->wr_iid != wrinfo->iid)
-      inst->wr_guid = wrinfo->guid;
-  }
   inst->strength = wrinfo->ownership_strength;
+}
+
+static void update_inst_have_wr_iid (struct rhc_instance *inst, const struct ddsi_writer_info * __restrict wrinfo, ddsrt_wctime_t tstamp)
+{
+  update_inst_common (inst, wrinfo, tstamp);
+  inst->wr_iid = wrinfo->iid;
+  inst->wr_guid = wrinfo->guid;
+  inst->wr_iid_islive = true;
+}
+
+static void update_inst_no_wr_iid (struct rhc_instance *inst, const struct ddsi_writer_info * __restrict wrinfo, ddsrt_wctime_t tstamp)
+{
+  update_inst_common (inst, wrinfo, tstamp);
+  inst->wr_iid_islive = false;
 }
 
 static void drop_instance_noupdate_no_writers (struct dds_rhc_default *__restrict rhc, struct rhc_instance * __restrict * __restrict instptr)
@@ -1317,7 +1324,7 @@ static int rhc_unregister_updateinst (struct dds_rhc_default *rhc, struct rhc_in
         if (inst->latest == NULL || inst->latest->isread)
         {
           inst_set_invsample (rhc, inst, trig_qc, nda);
-          update_inst (inst, wrinfo, false, tstamp);
+          update_inst_no_wr_iid (inst, wrinfo, tstamp);
         }
         if (!inst->autodispose)
           rhc->n_not_alive_no_writers++;
@@ -1344,7 +1351,7 @@ static int rhc_unregister_updateinst (struct dds_rhc_default *rhc, struct rhc_in
       TRACE (",#0,empty,nowriters");
       assert (inst_is_empty (inst));
       inst_set_invsample (rhc, inst, trig_qc, nda);
-      update_inst (inst, wrinfo, false, tstamp);
+      update_inst_no_wr_iid (inst, wrinfo, tstamp);
       if (inst->autodispose)
       {
         TRACE (",autodispose");
@@ -1410,7 +1417,7 @@ static struct rhc_instance *alloc_new_instance (struct dds_rhc_default *rhc, con
   return inst;
 }
 
-static rhc_store_result_t rhc_store_new_instance (struct rhc_instance **out_inst, struct dds_rhc_default *rhc, const struct ddsi_writer_info *wrinfo, struct ddsi_serdata *sample, struct ddsi_tkmap_instance *tk, const bool has_data, status_cb_data_t *cb_data, struct trigger_info_qcond *trig_qc, bool * __restrict nda)
+static rhc_store_result_t rhc_store_new_instance (struct rhc_instance **out_inst, struct dds_rhc_default *rhc, const struct ddsi_writer_info *wrinfo, struct ddsi_serdata *sample, struct ddsi_tkmap_instance *tk, const bool has_data, ddsi_status_cb_data_t *cb_data, struct trigger_info_qcond *trig_qc, bool * __restrict nda)
 {
   struct rhc_instance *inst;
   int ret;
@@ -1564,7 +1571,7 @@ static bool dds_rhc_default_store (struct ddsi_rhc * __restrict rhc_common, cons
   struct trigger_info_post post;
   struct trigger_info_qcond trig_qc;
   rhc_store_result_t stored;
-  status_cb_data_t cb_data;   /* Callback data for reader status callback */
+  ddsi_status_cb_data_t cb_data;   /* Callback data for reader status callback */
   bool notify_data_available;
 
   TRACE ("rhc_store %"PRIx64",%"PRIx64" si %"PRIx32" has_data %d:", tk->m_iid, wr_iid, statusinfo, has_data);
@@ -1690,7 +1697,7 @@ static bool dds_rhc_default_store (struct ddsi_rhc * __restrict rhc_common, cons
       if ((bool) inst->isdisposed > old_isdisposed && (inst->latest == NULL || inst->latest->isread))
         inst_set_invsample (rhc, inst, &trig_qc, &notify_data_available);
 
-      update_inst (inst, wrinfo, true, sample->timestamp);
+      update_inst_have_wr_iid (inst, wrinfo, sample->timestamp);
 
       /* Can only add samples => only need to give special treatment
          to instances that were empty before.  It is, however, not

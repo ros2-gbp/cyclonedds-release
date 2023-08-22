@@ -139,38 +139,18 @@ The default value is: "none".
 
 
 #### //CycloneDDS/Domain/Discovery/Peers
-Children: [Group](#cycloneddsdomaindiscoverypeersgroup), [Peer](#cycloneddsdomaindiscoverypeerspeer)
+Children: [Peer](#cycloneddsdomaindiscoverypeerspeer)
 
 This element statically configures addresses for discovery.
 
 
-##### //CycloneDDS/Domain/Discovery/Peers/Group
-Children: [Peer](#cycloneddsdomaindiscoverypeersgrouppeer)
-
-This element statically configures a fault tolerant group of addresses for discovery. Each member of the group is tried in sequence until one succeeds.
-
-
-###### //CycloneDDS/Domain/Discovery/Peers/Group/Peer
-Attributes: [Address](#cycloneddsdomaindiscoverypeersgrouppeeraddress)
-
-This element statically configures an addresses for discovery.
-
-
-###### //CycloneDDS/Domain/Discovery/Peers/Group/Peer[@Address]
-Text
-
-This element specifies an IP address to which discovery packets must be sent, in addition to the default multicast address (see also General/AllowMulticast). Both a hostnames and a numerical IP address is accepted; the hostname or IP address may be suffixed with :PORT to explicitly set the port to which it must be sent. Multiple Peers may be specified.
-
-The default value is: "".
-
-
 ##### //CycloneDDS/Domain/Discovery/Peers/Peer
-Attributes: [Address](#cycloneddsdomaindiscoverypeersgrouppeeraddress)
+Attributes: [Address](#cycloneddsdomaindiscoverypeerspeeraddress)
 
 This element statically configures an addresses for discovery.
 
 
-##### //CycloneDDS/Domain/Discovery/Peers/Group/Peer[@Address]
+##### //CycloneDDS/Domain/Discovery/Peers/Peer[@Address]
 Text
 
 This element specifies an IP address to which discovery packets must be sent, in addition to the default multicast address (see also General/AllowMulticast). Both a hostnames and a numerical IP address is accepted; the hostname or IP address may be suffixed with :PORT to explicitly set the port to which it must be sent. Multiple Peers may be specified.
@@ -267,7 +247,7 @@ The default value is: "".
 
 
 ### //CycloneDDS/Domain/General
-Children: [AllowMulticast](#cycloneddsdomaingeneralallowmulticast), [DontRoute](#cycloneddsdomaingeneraldontroute), [EnableMulticastLoopback](#cycloneddsdomaingeneralenablemulticastloopback), [ExternalNetworkAddress](#cycloneddsdomaingeneralexternalnetworkaddress), [ExternalNetworkMask](#cycloneddsdomaingeneralexternalnetworkmask), [FragmentSize](#cycloneddsdomaingeneralfragmentsize), [Interfaces](#cycloneddsdomaingeneralinterfaces), [MaxMessageSize](#cycloneddsdomaingeneralmaxmessagesize), [MaxRexmitMessageSize](#cycloneddsdomaingeneralmaxrexmitmessagesize), [MulticastRecvNetworkInterfaceAddresses](#cycloneddsdomaingeneralmulticastrecvnetworkinterfaceaddresses), [MulticastTimeToLive](#cycloneddsdomaingeneralmulticasttimetolive), [RedundantNetworking](#cycloneddsdomaingeneralredundantnetworking), [Transport](#cycloneddsdomaingeneraltransport), [UseIPv6](#cycloneddsdomaingeneraluseipv)
+Children: [AllowMulticast](#cycloneddsdomaingeneralallowmulticast), [DontRoute](#cycloneddsdomaingeneraldontroute), [EnableMulticastLoopback](#cycloneddsdomaingeneralenablemulticastloopback), [EntityAutoNaming](#cycloneddsdomaingeneralentityautonaming), [ExternalNetworkAddress](#cycloneddsdomaingeneralexternalnetworkaddress), [ExternalNetworkMask](#cycloneddsdomaingeneralexternalnetworkmask), [FragmentSize](#cycloneddsdomaingeneralfragmentsize), [Interfaces](#cycloneddsdomaingeneralinterfaces), [MaxMessageSize](#cycloneddsdomaingeneralmaxmessagesize), [MaxRexmitMessageSize](#cycloneddsdomaingeneralmaxrexmitmessagesize), [MulticastRecvNetworkInterfaceAddresses](#cycloneddsdomaingeneralmulticastrecvnetworkinterfaceaddresses), [MulticastTimeToLive](#cycloneddsdomaingeneralmulticasttimetolive), [RedundantNetworking](#cycloneddsdomaingeneralredundantnetworking), [Transport](#cycloneddsdomaingeneraltransport), [UseIPv6](#cycloneddsdomaingeneraluseipv)
 
 The General element specifies overall Cyclone DDS service settings.
 
@@ -311,6 +291,24 @@ This element specifies whether Cyclone DDS allows IP multicast packets to be vis
 The default value is: "true".
 
 
+#### //CycloneDDS/Domain/General/EntityAutoNaming
+Attributes: [seed](#cycloneddsdomaingeneralentityautonamingseed)
+
+One of: empty, fancy
+
+This element specifies the entity autonaming mode. By default set to 'empty' which means no name will be set (but you can still use dds\_qset\_entity\_name). When set to 'fancy' participants, publishers, subscribers, writers and readers will get randomly generated names. An autonamed entity will share a 3-letter prefix with their parent entity.
+
+The default value is: "empty".
+
+
+#### //CycloneDDS/Domain/General/EntityAutoNaming[@seed]
+Text
+
+Provide an initial seed for the entity naming. Your string will be hashed to provided the random state. When provided the same sequence of names is generated every run. If you create your entities in the same order this will ensure they are the same between runs. If you run multiple nodes set this via environment variable to ensure every node generates unique names. When left empty (the default) a random starting seed is chosen.
+
+The default value is: "".
+
+
 #### //CycloneDDS/Domain/General/ExternalNetworkAddress
 Text
 
@@ -344,7 +342,7 @@ This element specifies the network interfaces for use by Cyclone DDS. Multiple i
 
 
 ##### //CycloneDDS/Domain/General/Interfaces/NetworkInterface
-Attributes: [address](#cycloneddsdomaingeneralinterfacesnetworkinterfaceaddress), [autodetermine](#cycloneddsdomaingeneralinterfacesnetworkinterfaceautodetermine), [multicast](#cycloneddsdomaingeneralinterfacesnetworkinterfacemulticast), [name](#cycloneddsdomaingeneralinterfacesnetworkinterfacename), [prefer_multicast](#cycloneddsdomaingeneralinterfacesnetworkinterfaceprefermulticast), [priority](#cycloneddsdomaingeneralinterfacesnetworkinterfacepriority)
+Attributes: [address](#cycloneddsdomaingeneralinterfacesnetworkinterfaceaddress), [autodetermine](#cycloneddsdomaingeneralinterfacesnetworkinterfaceautodetermine), [multicast](#cycloneddsdomaingeneralinterfacesnetworkinterfacemulticast), [name](#cycloneddsdomaingeneralinterfacesnetworkinterfacename), [prefer_multicast](#cycloneddsdomaingeneralinterfacesnetworkinterfaceprefermulticast), [presence_required](#cycloneddsdomaingeneralinterfacesnetworkinterfacepresencerequired), [priority](#cycloneddsdomaingeneralinterfacesnetworkinterfacepriority)
 
 This element defines a network interface. You can set autodetermine="true" to autoselect the interface CycloneDDS deems to be the highest quality. If autodetermine="false" (the default), you must specify the name and/or address attribute. If you specify both they must match the same interface.
 
@@ -386,6 +384,14 @@ Boolean
 When false (default) Cyclone DDS uses unicast for data whenever there a single unicast suffices. Setting this to true makes it prefer multicasting data, falling back to unicast only when no multicast is available.
 
 The default value is: "false".
+
+
+##### //CycloneDDS/Domain/General/Interfaces/NetworkInterface[@presence_required]
+Boolean
+
+By default all specified network interfaces must be present, if they are missing Cyclone will refuse to start. By explicitly setting this setting for an interface you can instruct Cyclone to simply ignore that interface if it is not present.
+
+The default value is: "true".
 
 
 ##### //CycloneDDS/Domain/General/Interfaces/NetworkInterface[@priority]
@@ -504,7 +510,7 @@ This setting controls the interval with which a reader will continue NACK'ing mi
 
 Valid values are finite durations with an explicit unit or the keyword 'inf' for infinity. Recognised units: ns, us, ms, s, min, hr, day.
 
-The default value is: "1 s".
+The default value is: "3 s".
 
 
 #### //CycloneDDS/Domain/Internal/BuiltinEndpointSet
@@ -1856,13 +1862,13 @@ While none prevents any message from being written to a DDSI2 log file.
 The categorisation of tracing output is incomplete and hence most of the verbosity levels and categories are not of much use in the current release. This is an ongoing process and here we describe the target situation rather than the current situation. Currently, the most useful verbosity levels are config, fine and finest.
 
 The default value is: "none".
-<!--- generated from ddsi_config.h[65e4d0ff87910896249e76fb2e80d209874d4f7d] -->
-<!--- generated from ddsi_cfgunits.h[1e595223d52f30511d2b844a979277227d15fd3e] -->
-<!--- generated from ddsi_cfgelems.h[1b576c58b8e860d90bb52a8f134dd0d4c4717ce8] -->
-<!--- generated from ddsi_config.c[cfa9bdfba7ced22441d4139e93049ca8ac705da4] -->
-<!--- generated from _confgen.h[4c987ae42ea0d7e691a88609b30aaf756260a8c4] -->
-<!--- generated from _confgen.c[d1f3a36646cebdcbe4788725beebad9f5ee90f94] -->
-<!--- generated from generate_rnc.c[9785c4c557a472db1c1685daa2b82c39202ed17a] -->
-<!--- generated from generate_md.c[c3f3a8c63374bad4dbfb792e3509d4a5ab0d03fd] -->
-<!--- generated from generate_xsd.c[47ff306dce0c19d2c18704ce674642f62cccf40f] -->
-<!--- generated from generate_defconfig.c[a92ac1bffb20880e2efbc215e17b1c8c32f4ee5e] -->
+<!--- generated from ddsi_config.h[87da706bc9c463a87326e87b311d8291d5761d43] -->
+<!--- generated from ddsi_cfgunits.h[fc550f1620aa20dcd9244ef4e24299d5001efbb4] -->
+<!--- generated from ddsi_cfgelems.h[c54fbee60d780fadc6ebc3c738c5d2c5051e689a] -->
+<!--- generated from ddsi_config.c[98486715ac072b7b3cc3a449d55676be1218c98c] -->
+<!--- generated from _confgen.h[01ffa8a2e53b2309451756861466551cfe28c8ce] -->
+<!--- generated from _confgen.c[13cd40932d695abae1470202a42c18dc4d09ea84] -->
+<!--- generated from generate_rnc.c[a2ec6e48d33ac14a320c8ec3f320028a737920e0] -->
+<!--- generated from generate_md.c[a61b6a9649d18afeca4c73b5784f36989d7994e0] -->
+<!--- generated from generate_xsd.c[45064e8869b3c00573057d7c8f02d20f04b40e16] -->
+<!--- generated from generate_defconfig.c[eec9ab7b2d053e68500799b693d089e84153a37b] -->

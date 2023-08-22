@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -35,7 +35,8 @@
 #include "dds/ddsi/q_unused.h"
 #include "dds/ddsi/q_xmsg.h"
 #include "dds/ddsi/ddsi_config_impl.h"
-#include "dds/ddsi/q_entity.h"
+#include "dds/ddsi/ddsi_entity.h"
+#include "dds/ddsi/ddsi_endpoint.h"
 #include "dds/ddsi/ddsi_domaingv.h"
 #include "dds/ddsi/ddsi_entity_index.h"
 #include "dds/ddsi/q_freelist.h"
@@ -103,7 +104,6 @@ struct nn_xmsg {
     } one;
     struct {
       struct addrset *as;       /* send to all addresses in set */
-      struct addrset *as_group; /* send to one address in set */
     } all;
     struct {
       struct addrset *as;       /* send to all unicast addresses in set */
@@ -169,7 +169,6 @@ struct nn_xpack
     struct
     {
       struct addrset *as;        /* send to all addresses in set */
-      struct addrset *as_group;  /* send to one address in set */
     } all;
     struct
     {
@@ -292,7 +291,7 @@ static struct nn_xmsg *nn_xmsg_allocnew (struct nn_xmsgpool *pool, size_t expect
   return m;
 }
 
-struct nn_xmsg *nn_xmsg_new (struct nn_xmsgpool *pool, const ddsi_guid_t *src_guid, struct participant *pp, size_t expected_size, enum nn_xmsg_kind kind)
+struct nn_xmsg *nn_xmsg_new (struct nn_xmsgpool *pool, const ddsi_guid_t *src_guid, struct ddsi_participant *pp, size_t expected_size, enum nn_xmsg_kind kind)
 {
   struct nn_xmsg *m;
   if ((m = nn_freelist_pop (&pool->freelist)) != NULL)
@@ -339,7 +338,6 @@ void nn_xmsg_free (struct nn_xmsg *m)
       break;
     case NN_XMSG_DST_ALL:
       unref_addrset (m->dstaddr.all.as);
-      unref_addrset (m->dstaddr.all.as_group);
       break;
     case NN_XMSG_DST_ALL_UC:
       unref_addrset (m->dstaddr.all_uc.as);
@@ -660,7 +658,7 @@ void nn_xmsg_add_entityid (struct nn_xmsg * m)
   nn_xmsg_submsg_setnext (m, sm);
 }
 
-void nn_xmsg_serdata (struct nn_xmsg *m, struct ddsi_serdata *serdata, size_t off, size_t len, struct writer *wr)
+void nn_xmsg_serdata (struct nn_xmsg *m, struct ddsi_serdata *serdata, size_t off, size_t len, struct ddsi_writer *wr)
 {
   if (serdata->kind != SDK_EMPTY)
   {
@@ -694,7 +692,7 @@ static void nn_xmsg_setdst1_common (struct ddsi_domaingv *gv, struct nn_xmsg *m,
 #ifdef DDS_HAS_SECURITY
   if (m->sec_info.use_rtps_encoding && !m->sec_info.dst_pp_handle)
   {
-    struct proxy_participant *proxypp;
+    struct ddsi_proxy_participant *proxypp;
     ddsi_guid_t guid;
 
     guid.prefix = *gp;
@@ -727,7 +725,7 @@ bool nn_xmsg_getdst1prefix (struct nn_xmsg *m, ddsi_guid_prefix_t *gp)
   return false;
 }
 
-void nn_xmsg_setdstPRD (struct nn_xmsg *m, const struct proxy_reader *prd)
+void nn_xmsg_setdstPRD (struct nn_xmsg *m, const struct ddsi_proxy_reader *prd)
 {
   // only accepting endpoints that have an address
   assert (m->dstmode == NN_XMSG_DST_UNSET);
@@ -748,7 +746,7 @@ void nn_xmsg_setdstPRD (struct nn_xmsg *m, const struct proxy_reader *prd)
   }
 }
 
-void nn_xmsg_setdstPWR (struct nn_xmsg *m, const struct proxy_writer *pwr)
+void nn_xmsg_setdstPWR (struct nn_xmsg *m, const struct ddsi_proxy_writer *pwr)
 {
   // only accepting endpoints that have an address
   assert (m->dstmode == NN_XMSG_DST_UNSET);
@@ -769,12 +767,11 @@ void nn_xmsg_setdstPWR (struct nn_xmsg *m, const struct proxy_writer *pwr)
   }
 }
 
-void nn_xmsg_setdstN (struct nn_xmsg *m, struct addrset *as, struct addrset *as_group)
+void nn_xmsg_setdstN (struct nn_xmsg *m, struct addrset *as)
 {
   assert (m->dstmode == NN_XMSG_DST_UNSET || m->dstmode == NN_XMSG_DST_ONE);
   m->dstmode = NN_XMSG_DST_ALL;
   m->dstaddr.all.as = ref_addrset (as);
-  m->dstaddr.all.as_group = ref_addrset (as_group);
 }
 
 void nn_xmsg_set_data_readerId (struct nn_xmsg *m, ddsi_entityid_t *readerId)
@@ -791,7 +788,7 @@ static void clear_readerId (struct nn_xmsg *m)
   assert (m->kind == NN_XMSG_KIND_DATA_REXMIT || m->kind == NN_XMSG_KIND_DATA_REXMIT_NOMERGE);
   assert (m->kindspecific.data.readerId_off != 0);
   *((ddsi_entityid_t *) (m->data->payload + m->kindspecific.data.readerId_off)) =
-    nn_hton_entityid (to_entityid (NN_ENTITYID_UNKNOWN));
+    nn_hton_entityid (ddsi_to_entityid (NN_ENTITYID_UNKNOWN));
 }
 
 static ddsi_entityid_t load_readerId (const struct nn_xmsg *m)
@@ -812,7 +809,7 @@ int nn_xmsg_merge_rexmit_destinations_wrlock_held (struct ddsi_domaingv *gv, str
 {
   assert (m->kindspecific.data.wrseq >= 1);
   assert (m->kindspecific.data.wrguid.prefix.u[0] != 0);
-  assert (is_writer_entityid (m->kindspecific.data.wrguid.entityid));
+  assert (ddsi_is_writer_entityid (m->kindspecific.data.wrguid.entityid));
   assert (memcmp (&m->kindspecific.data.wrguid, &madd->kindspecific.data.wrguid, sizeof (m->kindspecific.data.wrguid)) == 0);
   assert (m->kindspecific.data.wrseq == madd->kindspecific.data.wrseq);
   assert (m->kindspecific.data.wrfragid == madd->kindspecific.data.wrfragid);
@@ -853,17 +850,16 @@ int nn_xmsg_merge_rexmit_destinations_wrlock_held (struct ddsi_domaingv *gv, str
           clear_readerId (m);
           m->dstmode = NN_XMSG_DST_ALL;
           m->dstaddr.all.as = ref_addrset (madd->dstaddr.all.as);
-          m->dstaddr.all.as_group = ref_addrset (madd->dstaddr.all.as_group);
           return 1;
 
         case NN_XMSG_DST_ONE:
           if (memcmp (&m->data->dst.guid_prefix, &madd->data->dst.guid_prefix, sizeof (m->data->dst.guid_prefix)) != 0)
           {
-            struct writer *wr;
+            struct ddsi_writer *wr;
             /* This is why wr->e.lock must be held: we can't safely
                reference the writer's address set if it isn't -- so
                FIXME: add a way to atomically replace the contents of
-               an addrset in rebuild_writer_addrset: then we don't
+               an addrset in ddsi_rebuild_writer_addrset: then we don't
                need the lock anymore, and the '_wrlock_held' suffix
                can go and everyone's life will become easier! */
             if ((wr = entidx_lookup_writer_guid (gv->entity_index, &m->kindspecific.data.wrguid)) == NULL)
@@ -877,7 +873,6 @@ int nn_xmsg_merge_rexmit_destinations_wrlock_held (struct ddsi_domaingv *gv, str
               clear_readerId (m);
               m->dstmode = NN_XMSG_DST_ALL;
               m->dstaddr.all.as = ref_addrset (wr->as);
-              m->dstaddr.all.as_group = ref_addrset (wr->as_group);
               return 1;
             }
           }
@@ -1029,11 +1024,11 @@ static void nn_xmsg_chain_release (struct ddsi_domaingv *gv, struct nn_xmsg_chai
           wrguid.prefix.u[2] != m->kindspecific.data.wrguid.prefix.u[2] ||
           wrguid.entityid.u != m->kindspecific.data.wrguid.entityid.u)
       {
-        struct writer *wr;
+        struct ddsi_writer *wr;
         assert (m->kindspecific.data.wrseq != 0);
         wrguid = m->kindspecific.data.wrguid;
         if ((wr = entidx_lookup_writer_guid (gv->entity_index, &m->kindspecific.data.wrguid)) != NULL)
-          writer_update_seq_xmit (wr, m->kindspecific.data.wrseq);
+          ddsi_writer_update_seq_xmit (wr, m->kindspecific.data.wrseq);
       }
     }
 
@@ -1318,17 +1313,6 @@ static void nn_xpack_send_real (struct nn_xpack *xp)
       calls = addrset_forall_count (xp->dstaddr.all.as, nn_xpack_send1v, xp);
       unref_addrset (xp->dstaddr.all.as);
     }
-
-    /* Send to at most one address in as_group */
-
-    if (xp->dstaddr.all.as_group)
-    {
-      if (addrset_forone (xp->dstaddr.all.as_group, nn_xpack_send1, xp) == 0)
-      {
-        calls++;
-      }
-      unref_addrset (xp->dstaddr.all.as_group);
-    }
   }
   GVTRACE (" ]\n");
   if (calls)
@@ -1346,17 +1330,17 @@ static void nn_xpack_send_real (struct nn_xpack *xp)
 static uint32_t nn_xpack_sendq_thread (void *vgv)
 {
   struct ddsi_domaingv *gv = vgv;
-  struct thread_state1 * const ts1 = lookup_thread_state ();
-  thread_state_awake_fixed_domain (ts1);
+  struct thread_state * const thrst = lookup_thread_state ();
+  thread_state_awake_fixed_domain (thrst);
   ddsrt_mutex_lock (&gv->sendq_lock);
   while (!(gv->sendq_stop && gv->sendq_head == NULL))
   {
     struct nn_xpack *xp;
     if ((xp = gv->sendq_head) == NULL)
     {
-      thread_state_asleep (ts1);
+      thread_state_asleep (thrst);
       (void) ddsrt_cond_wait (&gv->sendq_cond, &gv->sendq_lock);
-      thread_state_awake_fixed_domain (ts1);
+      thread_state_awake_fixed_domain (thrst);
     }
     else
     {
@@ -1370,7 +1354,7 @@ static uint32_t nn_xpack_sendq_thread (void *vgv)
     }
   }
   ddsrt_mutex_unlock (&gv->sendq_lock);
-  thread_state_asleep (ts1);
+  thread_state_asleep (thrst);
   return 0;
 }
 
@@ -1457,7 +1441,6 @@ static void copy_addressing_info (struct nn_xpack *xp, const struct nn_xmsg *m)
       break;
     case NN_XMSG_DST_ALL:
       xp->dstaddr.all.as = ref_addrset (m->dstaddr.all.as);
-      xp->dstaddr.all.as_group = ref_addrset (m->dstaddr.all.as_group);
       break;
     case NN_XMSG_DST_ALL_UC:
       xp->dstaddr.all_uc.as = ref_addrset (m->dstaddr.all_uc.as);
@@ -1476,8 +1459,7 @@ static int addressing_info_eq_onesidederr (const struct nn_xpack *xp, const stru
     case NN_XMSG_DST_ONE:
       return (memcmp (&xp->dstaddr.loc, &m->dstaddr.one.loc, sizeof (xp->dstaddr.loc)) == 0);
     case NN_XMSG_DST_ALL:
-      return (addrset_eq_onesidederr (xp->dstaddr.all.as, m->dstaddr.all.as) &&
-              addrset_eq_onesidederr (xp->dstaddr.all.as_group, m->dstaddr.all.as_group));
+      return addrset_eq_onesidederr (xp->dstaddr.all.as, m->dstaddr.all.as);
     case NN_XMSG_DST_ALL_UC:
       return addrset_eq_onesidederr (xp->dstaddr.all_uc.as, m->dstaddr.all_uc.as);
   }

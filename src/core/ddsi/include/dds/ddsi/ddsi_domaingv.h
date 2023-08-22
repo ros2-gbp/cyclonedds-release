@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -22,6 +22,7 @@
 #include "dds/ddsrt/sync.h"
 #include "dds/ddsrt/fibheap.h"
 #include "dds/ddsrt/avl.h"
+#include "dds/ddsrt/random.h"
 
 #include "dds/ddsi/ddsi_plist.h"
 #include "dds/ddsi/ddsi_ownip.h"
@@ -171,7 +172,7 @@ struct ddsi_domaingv {
      this participant, which is the first one created with all
      built-in writers present.  It MUST be created before any in need
      of it pops up! */
-  struct participant *privileged_pp;
+  struct ddsi_participant *privileged_pp;
   ddsrt_mutex_t privileged_pp_lock;
 
   /* For tracking (recently) deleted participants */
@@ -208,11 +209,9 @@ struct ddsi_domaingv {
 
   /*
     Initial discovery address set, and the current discovery address
-    set. These are the addresses that SPDP pings get sent to. The
-    as_disc_group is an FT group (only use first working).
+    set. These are the addresses that SPDP pings get sent to.
   */
   struct addrset *as_disc;
-  struct addrset *as_disc_group;
 
   ddsrt_mutex_t lock;
 
@@ -224,12 +223,12 @@ struct ddsi_domaingv {
   uint32_t n_recv_threads;
   struct recv_thread {
     const char *name;
-    struct thread_state1 *ts;
+    struct thread_state *thrst;
     struct recv_thread_arg arg;
   } recv_threads[MAX_RECV_THREADS];
 
   /* Listener thread for connection based transports */
-  struct thread_state1 *listen_ts;
+  struct thread_state *listen_ts;
 
   /* Flag cleared when stopping (receive threads). FIXME. */
   ddsrt_atomic_uint32_t rtps_keepgoing;
@@ -274,7 +273,7 @@ struct ddsi_domaingv {
 
 #ifndef DDS_HAS_NETWORK_CHANNELS
   uint32_t networkQueueId;
-  struct thread_state1 *channel_reader_ts;
+  struct thread_state *channel_reader_thrst;
 
   /* Application data gets its own delivery queue */
   struct nn_dqueue *user_dqueue;
@@ -308,7 +307,7 @@ struct ddsi_domaingv {
   struct nn_xpack *sendq_head;
   struct nn_xpack *sendq_tail;
   int sendq_stop;
-  struct thread_state1 *sendq_ts;
+  struct thread_state *sendq_ts;
   bool sendq_running;
   ddsrt_mutex_t sendq_running_lock;
 
@@ -326,6 +325,8 @@ struct ddsi_domaingv {
 #ifdef DDS_HAS_TYPE_DISCOVERY
   ddsrt_mutex_t typelib_lock;
   ddsrt_avl_tree_t typelib;
+  ddsrt_avl_tree_t typedeps;
+  ddsrt_avl_tree_t typedeps_reverse;
   ddsrt_cond_t typelib_resolved_cond;
 #endif
 #ifdef DDS_HAS_TOPIC_DISCOVERY
@@ -344,6 +345,9 @@ struct ddsi_domaingv {
   bool handshake_include_optional;
 #endif
 
+  /* naming */
+  ddsrt_mutex_t naming_lock;
+  ddsrt_prng_t naming_rng;
 };
 
 #if defined (__cplusplus)

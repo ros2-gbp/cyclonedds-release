@@ -1,6 +1,5 @@
 /*
- * Copyright(c) 2022 ZettaScale Technology
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -18,7 +17,8 @@
 #include "dds/ddsrt/static_assert.h"
 #include "dds/ddsi/ddsi_config_impl.h"
 #include "dds/ddsi/ddsi_domaingv.h"
-#include "dds/ddsi/q_entity.h"
+#include "dds/ddsi/ddsi_entity.h"
+#include "dds/ddsi/ddsi_endpoint.h"
 #include "dds/ddsi/q_thread.h"
 #include "dds/ddsi/q_xmsg.h"
 #include "dds/ddsi/ddsi_entity_index.h"
@@ -50,7 +50,7 @@ static dds_return_t dds_writer_status_validate (uint32_t mask)
   return (mask & ~DDS_WRITER_STATUS_MASK) ? DDS_RETCODE_BAD_PARAMETER : DDS_RETCODE_OK;
 }
 
-static void update_offered_deadline_missed (struct dds_offered_deadline_missed_status * __restrict st, const status_cb_data_t *data)
+static void update_offered_deadline_missed (struct dds_offered_deadline_missed_status * __restrict st, const ddsi_status_cb_data_t *data)
 {
   st->last_instance_handle = data->handle;
   st->total_count++;
@@ -62,21 +62,21 @@ static void update_offered_deadline_missed (struct dds_offered_deadline_missed_s
   st->total_count_change++;
 }
 
-static void update_offered_incompatible_qos (struct dds_offered_incompatible_qos_status * __restrict st, const status_cb_data_t *data)
+static void update_offered_incompatible_qos (struct dds_offered_incompatible_qos_status * __restrict st, const ddsi_status_cb_data_t *data)
 {
   st->last_policy_id = data->extra;
   st->total_count++;
   st->total_count_change++;
 }
 
-static void update_liveliness_lost (struct dds_liveliness_lost_status * __restrict st, const status_cb_data_t *data)
+static void update_liveliness_lost (struct dds_liveliness_lost_status * __restrict st, const ddsi_status_cb_data_t *data)
 {
   (void) data;
   st->total_count++;
   st->total_count_change++;
 }
 
-static void update_publication_matched (struct dds_publication_matched_status * __restrict st, const status_cb_data_t *data)
+static void update_publication_matched (struct dds_publication_matched_status * __restrict st, const ddsi_status_cb_data_t *data)
 {
   st->last_subscription_handle = data->handle;
   if (data->add) {
@@ -100,7 +100,7 @@ STATUS_CB_IMPL(writer, liveliness_lost, LIVELINESS_LOST, total_count_change)
 STATUS_CB_IMPL(writer, offered_deadline_missed, OFFERED_DEADLINE_MISSED, total_count_change)
 STATUS_CB_IMPL(writer, offered_incompatible_qos, OFFERED_INCOMPATIBLE_QOS, total_count_change)
 
-void dds_writer_status_cb (void *entity, const struct status_cb_data *data)
+void dds_writer_status_cb (void *entity, const struct ddsi_status_cb_data *data)
 {
   dds_writer * const wr = entity;
 
@@ -173,7 +173,7 @@ static void dds_writer_interrupt (dds_entity *e)
 {
   struct ddsi_domaingv * const gv = &e->m_domain->gv;
   thread_state_awake (lookup_thread_state (), gv);
-  unblock_throttled_writer (gv, &e->m_guid);
+  ddsi_unblock_throttled_writer (gv, &e->m_guid);
   thread_state_asleep (lookup_thread_state ());
 }
 
@@ -183,11 +183,11 @@ static void dds_writer_close (dds_entity *e)
 {
   struct dds_writer * const wr = (struct dds_writer *) e;
   struct ddsi_domaingv * const gv = &e->m_domain->gv;
-  struct thread_state1 * const ts1 = lookup_thread_state ();
-  thread_state_awake (ts1, gv);
+  struct thread_state * const thrst = lookup_thread_state ();
+  thread_state_awake (thrst, gv);
   nn_xpack_send (wr->m_xp, false);
-  (void) delete_writer (gv, &e->m_guid);
-  thread_state_asleep (ts1);
+  (void) ddsi_delete_writer (gv, &e->m_guid);
+  thread_state_asleep (thrst);
 
   ddsrt_mutex_lock (&e->m_mutex);
   while (wr->m_wr != NULL)
@@ -240,10 +240,10 @@ static dds_return_t dds_writer_qos_set (dds_entity *e, const dds_qos_t *qos, boo
     return ret;
   if (enabled)
   {
-    struct writer *wr;
+    struct ddsi_writer *wr;
     thread_state_awake (lookup_thread_state (), &e->m_domain->gv);
     if ((wr = entidx_lookup_writer_guid (e->m_domain->gv.entity_index, &e->m_guid)) != NULL)
-      update_writer_qos (wr, qos);
+      ddsi_update_writer_qos (wr, qos);
     thread_state_asleep (lookup_thread_state ());
   }
   return DDS_RETCODE_OK;
@@ -313,6 +313,10 @@ static bool dds_writer_support_shm(const struct ddsi_config* cfg, const dds_qos_
       qos->durability_service.history.kind == DDS_HISTORY_KEEP_LAST &&
       qos->durability_service.history.depth >
           (int32_t)iox_cfg_max_publisher_history()) {
+    return false;
+  }
+
+  if (qos->ignorelocal.value != DDS_IGNORELOCAL_NONE) {
     return false;
   }
 
@@ -399,10 +403,12 @@ dds_entity_t dds_create_writer (dds_entity_t participant_or_publisher, dds_entit
   if (qos)
     ddsi_xqos_mergein_missing (wqos, qos, DDS_WRITER_QOS_MASK);
   if (pub->m_entity.m_qos)
-    ddsi_xqos_mergein_missing (wqos, pub->m_entity.m_qos, ~(uint64_t)0);
+    ddsi_xqos_mergein_missing (wqos, pub->m_entity.m_qos, ~QP_ENTITY_NAME);
   if (tp->m_ktopic->qos)
-    ddsi_xqos_mergein_missing (wqos, tp->m_ktopic->qos, ~(uint64_t)0);
+    ddsi_xqos_mergein_missing (wqos, tp->m_ktopic->qos, ~QP_ENTITY_NAME);
   ddsi_xqos_mergein_missing (wqos, &ddsi_default_qos_writer, ~QP_DATA_REPRESENTATION);
+  dds_apply_entity_naming(wqos, pub->m_entity.m_qos, gv);
+
   if ((rc = dds_ensure_valid_data_representation (wqos, tp->m_stype->allowed_data_representation, false)) != 0)
     goto err_data_repr;
 
@@ -414,7 +420,7 @@ dds_entity_t dds_create_writer (dds_entity_t participant_or_publisher, dds_entit
 
   thread_state_awake (lookup_thread_state (), gv);
   const struct ddsi_guid *ppguid = dds_entity_participant_guid (&pub->m_entity);
-  struct participant *pp = entidx_lookup_participant_guid (gv->entity_index, ppguid);
+  struct ddsi_participant *pp = entidx_lookup_participant_guid (gv->entity_index, ppguid);
   /* When deleting a participant, the child handles (that include the publisher)
      are removed before removing the DDSI participant. So at this point, within
      the publisher lock, we can assert that the participant exists. */
@@ -458,12 +464,12 @@ dds_entity_t dds_create_writer (dds_entity_t participant_or_publisher, dds_entit
   if (!sertype)
     sertype = tp->m_stype;
 
-  rc = new_writer (&wr->m_wr, &wr->m_entity.m_guid, NULL, pp, tp->m_name, sertype, wqos, wr->m_whc, dds_writer_status_cb, wr);
+  rc = ddsi_new_writer (&wr->m_wr, &wr->m_entity.m_guid, NULL, pp, tp->m_name, sertype, wqos, wr->m_whc, dds_writer_status_cb, wr);
   assert(rc == DDS_RETCODE_OK);
   thread_state_asleep (lookup_thread_state ());
 
 #ifdef DDS_HAS_SHM
-  if (0x0 == (wqos->ignore_locator_type & NN_LOCATOR_KIND_SHEM))
+  if (wr->m_wr->has_iceoryx)
   {
     DDS_CLOG (DDS_LC_SHM, &wr->m_entity.m_domain->gv.logconfig, "Writer's topic name will be DDS:Cyclone:%s\n", wr->m_topic->m_name);
     iox_pub_options_t opts = create_iox_pub_options(wqos);
@@ -471,14 +477,13 @@ dds_entity_t dds_create_writer (dds_entity_t participant_or_publisher, dds_entit
     // NB: This may fail due to icoeryx being out of internal resources for publishers
     //     In this case terminate is called by iox_pub_init.
     //     it is currently (iceoryx 2.0 and lower) not possible to change this to
-    //     e.g. return a nullptr and handle the error here.   
+    //     e.g. return a nullptr and handle the error here.
     wr->m_iox_pub = iox_pub_init(&(iox_pub_storage_t){0}, gv->config.iceoryx_service, wr->m_topic->m_stype->type_name, wr->m_topic->m_name, &opts);
     memset(wr->m_iox_pub_loans, 0, sizeof(wr->m_iox_pub_loans));
-    dds_sleepfor(DDS_MSECS(10));
   }
 #endif
 
-  wr->m_entity.m_iid = get_entity_instance_id (&wr->m_entity.m_domain->gv, &wr->m_entity.m_guid);
+  wr->m_entity.m_iid = ddsi_get_entity_instanceid (&wr->m_entity.m_domain->gv, &wr->m_entity.m_guid);
   dds_entity_register_child (&pub->m_entity, &wr->m_entity);
 
   dds_entity_init_complete (&wr->m_entity);
@@ -569,12 +574,12 @@ dds_return_t dds__writer_data_allocator_fini (const dds_writer *wr, dds_data_all
   return DDS_RETCODE_OK;
 }
 
-dds_return_t dds__writer_wait_for_acks (struct dds_writer *wr, ddsi_guid_t *rdguid, dds_time_t abstimeout)
+dds_return_t dds__ddsi_writer_wait_for_acks (struct dds_writer *wr, ddsi_guid_t *rdguid, dds_time_t abstimeout)
 {
   /* during lifetime of the writer m_wr is constant, it is only during deletion that it
      gets erased at some point */
   if (wr->m_wr == NULL)
     return DDS_RETCODE_OK;
   else
-    return writer_wait_for_acks (wr->m_wr, rdguid, abstimeout);
+    return ddsi_writer_wait_for_acks (wr->m_wr, rdguid, abstimeout);
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2021 ADLINK Technology Limited and others
+ * Copyright(c) 2021 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -36,6 +36,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if !defined(__USE_GNU) || !defined(__APPLE__) || !defined(__FreeBSD__)
+  #define __MUSL__
+#endif
+
 #if defined _WIN32
 # include <locale.h>
 typedef _locale_t locale_t;
@@ -268,7 +272,9 @@ unsigned long long idl_strtoull(const char *str, char **endptr, int base)
 {
   assert(str);
   assert(base >= 0 && base <= 36);
-#if _WIN32
+#ifdef __MUSL__
+  return strtoull(str, endptr, base);
+#elif _WIN32
 #if __GNUC__
   return strtoull(str, endptr, base);
 #else
