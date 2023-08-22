@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2019 ADLINK Technology Limited and others
+ * Copyright(c) 2019 to 2021 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -62,6 +62,10 @@ DDS_INLINE_EXPORT inline bool vendor_is_eclipse (nn_vendorid_t vendor) {
 }
 DDS_INLINE_EXPORT inline bool vendor_is_rti (nn_vendorid_t vendor) {
   const nn_vendorid_t x = NN_VENDORID_INIT (RTI);
+  return vendor_equals (vendor, x);
+}
+DDS_INLINE_EXPORT inline bool vendor_is_rti_micro (nn_vendorid_t vendor) {
+  const nn_vendorid_t x = NN_VENDORID_INIT (RTI_MICRO);
   return vendor_equals (vendor, x);
 }
 DDS_INLINE_EXPORT inline bool vendor_is_opensplice (nn_vendorid_t vendor) {

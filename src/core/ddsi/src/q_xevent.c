@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -30,13 +30,15 @@
 #include "dds/ddsi/ddsi_entity_index.h"
 #include "dds/ddsi/q_transmit.h"
 #include "dds/ddsi/q_bswap.h"
-#include "dds/ddsi/q_entity.h"
+#include "dds/ddsi/ddsi_entity.h"
+#include "dds/ddsi/ddsi_participant.h"
+#include "dds/ddsi/ddsi_endpoint.h"
+#include "dds/ddsi/ddsi_proxy_endpoint.h"
 #include "dds/ddsi/q_misc.h"
 #include "dds/ddsi/q_radmin.h"
 #include "dds/ddsi/q_bitset.h"
 #include "dds/ddsi/q_lease.h"
 #include "dds/ddsi/q_xmsg.h"
-#include "dds/ddsi/q_entity.h"
 #include "dds/ddsi/ddsi_serdata.h"
 #include "dds/ddsi/ddsi_serdata_default.h"
 #include "dds/ddsi/ddsi_security_omg.h"
@@ -150,7 +152,7 @@ struct xeventq {
   size_t max_queued_rexmit_bytes;
   size_t max_queued_rexmit_msgs;
   int terminate;
-  struct thread_state1 *ts;
+  struct thread_state *thrst;
   struct ddsi_domaingv *gv;
   ddsrt_mutex_t lock;
   ddsrt_cond_t cond;
@@ -514,7 +516,7 @@ struct xeventq * xeventq_new (struct ddsi_domaingv *gv, size_t max_queued_rexmit
   evq->non_timed_xmit_list_oldest = NULL;
   evq->non_timed_xmit_list_newest = NULL;
   evq->terminate = 0;
-  evq->ts = NULL;
+  evq->thrst = NULL;
   evq->max_queued_rexmit_bytes = max_queued_rexmit_bytes;
   evq->max_queued_rexmit_msgs = max_queued_rexmit_msgs;
   evq->auxiliary_bandwidth_limit = auxiliary_bandwidth_limit;
@@ -532,7 +534,7 @@ dds_return_t xeventq_start (struct xeventq *evq, const char *name)
 {
   dds_return_t rc;
   char * evqname = "tev";
-  assert (evq->ts == NULL);
+  assert (evq->thrst == NULL);
 
   if (name)
   {
@@ -542,7 +544,7 @@ dds_return_t xeventq_start (struct xeventq *evq, const char *name)
   }
 
   evq->terminate = 0;
-  rc = create_thread (&evq->ts, evq->gv, evqname, (uint32_t (*) (void *)) xevent_thread, evq);
+  rc = create_thread (&evq->thrst, evq->gv, evqname, (uint32_t (*) (void *)) xevent_thread, evq);
 
   if (name)
   {
@@ -553,19 +555,19 @@ dds_return_t xeventq_start (struct xeventq *evq, const char *name)
 
 void xeventq_stop (struct xeventq *evq)
 {
-  assert (evq->ts != NULL);
+  assert (evq->thrst != NULL);
   ddsrt_mutex_lock (&evq->lock);
   evq->terminate = 1;
   ddsrt_cond_broadcast (&evq->cond);
   ddsrt_mutex_unlock (&evq->lock);
-  join_thread (evq->ts);
-  evq->ts = NULL;
+  join_thread (evq->thrst);
+  evq->thrst = NULL;
 }
 
 void xeventq_free (struct xeventq *evq)
 {
   struct xevent *ev;
-  assert (evq->ts == NULL);
+  assert (evq->thrst == NULL);
   while ((ev = ddsrt_fibheap_extract_min (&evq_xevents_fhdef, &evq->xevents)) != NULL)
     free_xevent (evq, ev);
 
@@ -620,10 +622,10 @@ static void handle_xevk_entityid (struct nn_xpack *xp, struct xevent_nt *ev)
 }
 
 #ifdef DDS_HAS_SECURITY
-static int send_heartbeat_to_all_readers_check_and_sched (struct xevent *ev, struct writer *wr, const struct whc_state *whcst, ddsrt_mtime_t tnow, ddsrt_mtime_t *t_next)
+static int send_heartbeat_to_all_readers_check_and_sched (struct xevent *ev, struct ddsi_writer *wr, const struct whc_state *whcst, ddsrt_mtime_t tnow, ddsrt_mtime_t *t_next)
 {
   int send;
-  if (!writer_must_have_hb_scheduled (wr, whcst))
+  if (!ddsi_writer_must_have_hb_scheduled (wr, whcst))
   {
     wr->hbcontrol.tsched = DDSRT_MTIME_NEVER;
     send = -1;
@@ -645,7 +647,7 @@ static int send_heartbeat_to_all_readers_check_and_sched (struct xevent *ev, str
   return send;
 }
 
-static void send_heartbeat_to_all_readers (struct nn_xpack *xp, struct xevent *ev, struct writer *wr, ddsrt_mtime_t tnow)
+static void send_heartbeat_to_all_readers (struct nn_xpack *xp, struct xevent *ev, struct ddsi_writer *wr, ddsrt_mtime_t tnow)
 {
   struct whc_state whcst;
   ddsrt_mtime_t t_next;
@@ -657,15 +659,15 @@ static void send_heartbeat_to_all_readers (struct nn_xpack *xp, struct xevent *e
   const int hbansreq = send_heartbeat_to_all_readers_check_and_sched (ev, wr, &whcst, tnow, &t_next);
   if (hbansreq >= 0)
   {
-    struct wr_prd_match *m;
+    struct ddsi_wr_prd_match *m;
     struct ddsi_guid last_guid = { .prefix = {.u = {0,0,0}}, .entityid = {0} };
 
-    while ((m = ddsrt_avl_lookup_succ (&wr_readers_treedef, &wr->readers, &last_guid)) != NULL)
+    while ((m = ddsrt_avl_lookup_succ (&ddsi_wr_readers_treedef, &wr->readers, &last_guid)) != NULL)
     {
       last_guid = m->prd_guid;
       if (m->seq < m->last_seq)
       {
-        struct proxy_reader *prd;
+        struct ddsi_proxy_reader *prd;
 
         prd = entidx_lookup_proxy_reader_guid(wr->e.gv->entity_index, &m->prd_guid);
         if (prd)
@@ -699,17 +701,17 @@ static void send_heartbeat_to_all_readers (struct nn_xpack *xp, struct xevent *e
               PGUID (wr->e.guid),
               (t_next.v == DDS_NEVER) ? INFINITY : (double)(t_next.v - tnow.v) / 1e9,
               whcst.max_seq,
-              writer_read_seq_xmit(wr));
+              ddsi_writer_read_seq_xmit(wr));
     }
     else
     {
       ETRACE (wr, "heartbeat(wr "PGUIDFMT") suppressed, resched in %g s (min-ack %"PRIu64"%s, avail-seq %"PRIu64", xmit %"PRIu64")\n",
               PGUID (wr->e.guid),
               (t_next.v == DDS_NEVER) ? INFINITY : (double)(t_next.v - tnow.v) / 1e9,
-              ((struct wr_prd_match *) ddsrt_avl_root (&wr_readers_treedef, &wr->readers))->min_seq,
-              ((struct wr_prd_match *) ddsrt_avl_root (&wr_readers_treedef, &wr->readers))->all_have_replied_to_hb ? "" : "!",
+              ((struct ddsi_wr_prd_match *) ddsrt_avl_root (&ddsi_wr_readers_treedef, &wr->readers))->min_seq,
+              ((struct ddsi_wr_prd_match *) ddsrt_avl_root (&ddsi_wr_readers_treedef, &wr->readers))->all_have_replied_to_hb ? "" : "!",
               whcst.max_seq,
-              writer_read_seq_xmit(wr));
+              ddsi_writer_read_seq_xmit(wr));
     }
   }
 
@@ -721,7 +723,7 @@ static void handle_xevk_heartbeat (struct nn_xpack *xp, struct xevent *ev, ddsrt
 {
   struct ddsi_domaingv const * const gv = ev->evq->gv;
   struct nn_xmsg *msg;
-  struct writer *wr;
+  struct ddsi_writer *wr;
   ddsrt_mtime_t t_next;
   int hbansreq = 0;
   struct whc_state whcst;
@@ -743,7 +745,7 @@ static void handle_xevk_heartbeat (struct nn_xpack *xp, struct xevent *ev, ddsrt
   ddsrt_mutex_lock (&wr->e.lock);
   assert (wr->reliable);
   whc_get_state(wr->whc, &whcst);
-  if (!writer_must_have_hb_scheduled (wr, &whcst))
+  if (!ddsi_writer_must_have_hb_scheduled (wr, &whcst))
   {
     hbansreq = 1; /* just for trace */
     msg = NULL; /* Need not send it now, and no need to schedule it for the future */
@@ -769,7 +771,7 @@ static void handle_xevk_heartbeat (struct nn_xpack *xp, struct xevent *ev, ddsrt
              hbansreq ? "" : " final",
              msg ? "sent" : "suppressed",
              (t_next.v == DDS_NEVER) ? INFINITY : (double)(t_next.v - tnow.v) / 1e9,
-             whcst.max_seq, writer_read_seq_xmit (wr));
+             whcst.max_seq, ddsi_writer_read_seq_xmit (wr));
   }
   else
   {
@@ -778,9 +780,9 @@ static void handle_xevk_heartbeat (struct nn_xpack *xp, struct xevent *ev, ddsrt
              hbansreq ? "" : " final",
              msg ? "sent" : "suppressed",
              (t_next.v == DDS_NEVER) ? INFINITY : (double)(t_next.v - tnow.v) / 1e9,
-             ((struct wr_prd_match *) ddsrt_avl_root_non_empty (&wr_readers_treedef, &wr->readers))->min_seq,
-             ((struct wr_prd_match *) ddsrt_avl_root_non_empty (&wr_readers_treedef, &wr->readers))->all_have_replied_to_hb ? "" : "!",
-             whcst.max_seq, writer_read_seq_xmit (wr));
+             ((struct ddsi_wr_prd_match *) ddsrt_avl_root_non_empty (&ddsi_wr_readers_treedef, &wr->readers))->min_seq,
+             ((struct ddsi_wr_prd_match *) ddsrt_avl_root_non_empty (&ddsi_wr_readers_treedef, &wr->readers))->all_have_replied_to_hb ? "" : "!",
+             whcst.max_seq, ddsi_writer_read_seq_xmit (wr));
   }
   (void) resched_xevent_if_earlier (ev, t_next);
   wr->hbcontrol.tsched = t_next;
@@ -803,7 +805,7 @@ static void handle_xevk_heartbeat (struct nn_xpack *xp, struct xevent *ev, ddsrt
   }
 }
 
-static dds_duration_t preemptive_acknack_interval (const struct pwr_rd_match *rwn)
+static dds_duration_t preemptive_acknack_interval (const struct ddsi_pwr_rd_match *rwn)
 {
   if (rwn->t_last_ack.v < rwn->tcreate.v)
     return 0;
@@ -821,7 +823,7 @@ static dds_duration_t preemptive_acknack_interval (const struct pwr_rd_match *rw
   }
 }
 
-static struct nn_xmsg *make_preemptive_acknack (struct xevent *ev, struct proxy_writer *pwr, struct pwr_rd_match *rwn, ddsrt_mtime_t tnow)
+static struct nn_xmsg *make_preemptive_acknack (struct xevent *ev, struct ddsi_proxy_writer *pwr, struct ddsi_pwr_rd_match *rwn, ddsrt_mtime_t tnow)
 {
   const dds_duration_t intv = preemptive_acknack_interval (rwn);
   if (tnow.v < ddsrt_mtime_add_duration (rwn->t_last_ack, intv).v)
@@ -831,10 +833,10 @@ static struct nn_xmsg *make_preemptive_acknack (struct xevent *ev, struct proxy_
   }
 
   struct ddsi_domaingv * const gv = pwr->e.gv;
-  struct participant *pp = NULL;
+  struct ddsi_participant *pp = NULL;
   if (q_omg_proxy_participant_is_secure (pwr->c.proxypp))
   {
-    struct reader *rd = entidx_lookup_reader_guid (gv->entity_index, &rwn->rd_guid);
+    struct ddsi_reader *rd = entidx_lookup_reader_guid (gv->entity_index, &rwn->rd_guid);
     if (rd)
       pp = rd->c.pp;
   }
@@ -878,9 +880,9 @@ static void handle_xevk_acknack (struct nn_xpack *xp, struct xevent *ev, ddsrt_m
      favour of others, so MUST ensure that the defragmenter won't start
      threshing and fail to make progress! */
   struct ddsi_domaingv *gv = ev->evq->gv;
-  struct proxy_writer *pwr;
+  struct ddsi_proxy_writer *pwr;
   struct nn_xmsg *msg;
-  struct pwr_rd_match *rwn;
+  struct ddsi_pwr_rd_match *rwn;
 
   if ((pwr = entidx_lookup_proxy_writer_guid (gv->entity_index, &ev->u.acknack.pwr_guid)) == NULL)
   {
@@ -888,7 +890,7 @@ static void handle_xevk_acknack (struct nn_xpack *xp, struct xevent *ev, ddsrt_m
   }
 
   ddsrt_mutex_lock (&pwr->e.lock);
-  if ((rwn = ddsrt_avl_lookup (&pwr_readers_treedef, &pwr->readers, &ev->u.acknack.rd_guid)) == NULL)
+  if ((rwn = ddsrt_avl_lookup (&ddsi_pwr_readers_treedef, &pwr->readers, &ev->u.acknack.rd_guid)) == NULL)
   {
     ddsrt_mutex_unlock (&pwr->e.lock);
     return;
@@ -896,8 +898,6 @@ static void handle_xevk_acknack (struct nn_xpack *xp, struct xevent *ev, ddsrt_m
 
   if (!pwr->have_seen_heartbeat)
     msg = make_preemptive_acknack (ev, pwr, rwn, tnow);
-  else if (!(rwn->heartbeat_since_ack || rwn->heartbeatfrag_since_ack))
-    msg = NULL;
   else
     msg = make_and_resched_acknack (ev, pwr, rwn, tnow, false);
   ddsrt_mutex_unlock (&pwr->e.lock);
@@ -916,7 +916,7 @@ static void handle_xevk_acknack (struct nn_xpack *xp, struct xevent *ev, ddsrt_m
   }
 }
 
-static bool resend_spdp_sample_by_guid_key (struct writer *wr, const ddsi_guid_t *guid, struct proxy_reader *prd)
+static bool resend_spdp_sample_by_guid_key (struct ddsi_writer *wr, const ddsi_guid_t *guid, struct ddsi_proxy_reader *prd)
 {
   /* Look up data in (transient-local) WHC by key value -- FIXME: clearly
    a slightly more efficient and elegant way of looking up the key value
@@ -952,9 +952,9 @@ static void handle_xevk_spdp (UNUSED_ARG (struct nn_xpack *xp), struct xevent *e
 {
   /* Like the writer pointer in the heartbeat event, the participant pointer in the spdp event is assumed valid. */
   struct ddsi_domaingv *gv = ev->evq->gv;
-  struct participant *pp;
-  struct proxy_reader *prd;
-  struct writer *spdp_wr;
+  struct ddsi_participant *pp;
+  struct ddsi_proxy_reader *prd;
+  struct ddsi_writer *spdp_wr;
   bool do_write;
 
   if ((pp = entidx_lookup_participant_guid (gv->entity_index, &ev->u.spdp.pp_guid)) == NULL)
@@ -965,7 +965,7 @@ static void handle_xevk_spdp (UNUSED_ARG (struct nn_xpack *xp), struct xevent *e
     return;
   }
 
-  if ((spdp_wr = get_builtin_writer (pp, NN_ENTITYID_SPDP_BUILTIN_PARTICIPANT_WRITER)) == NULL)
+  if ((spdp_wr = ddsi_get_builtin_writer (pp, NN_ENTITYID_SPDP_BUILTIN_PARTICIPANT_WRITER)) == NULL)
   {
     GVTRACE ("handle_xevk_spdp "PGUIDFMT" - spdp writer of participant not found\n", PGUID (ev->u.spdp.pp_guid));
     if (ev->u.spdp.directed)
@@ -1063,10 +1063,10 @@ static void handle_xevk_spdp (UNUSED_ARG (struct nn_xpack *xp), struct xevent *e
   }
 }
 
-static void handle_xevk_pmd_update (struct thread_state1 * const ts1, struct nn_xpack *xp, struct xevent *ev, ddsrt_mtime_t tnow)
+static void handle_xevk_pmd_update (struct thread_state * const thrst, struct nn_xpack *xp, struct xevent *ev, ddsrt_mtime_t tnow)
 {
   struct ddsi_domaingv * const gv = ev->evq->gv;
-  struct participant *pp;
+  struct ddsi_participant *pp;
   dds_duration_t intv;
   ddsrt_mtime_t tnext;
 
@@ -1075,9 +1075,9 @@ static void handle_xevk_pmd_update (struct thread_state1 * const ts1, struct nn_
     return;
   }
 
-  write_pmd_message (ts1, xp, pp, PARTICIPANT_MESSAGE_DATA_KIND_AUTOMATIC_LIVELINESS_UPDATE);
+  write_pmd_message (thrst, xp, pp, PARTICIPANT_MESSAGE_DATA_KIND_AUTOMATIC_LIVELINESS_UPDATE);
 
-  intv = pp_get_pmd_interval (pp);
+  intv = ddsi_participant_get_pmd_interval (pp);
   if (intv == DDS_INFINITY)
   {
     tnext.v = DDS_NEVER;
@@ -1102,11 +1102,11 @@ static void handle_xevk_delete_writer (UNUSED_ARG (struct nn_xpack *xp), struct 
   /* don't worry if the writer is already gone by the time we get here, delete_writer_nolinger checks for that. */
   struct ddsi_domaingv * const gv = ev->evq->gv;
   GVTRACE ("handle_xevk_delete_writer: "PGUIDFMT"\n", PGUID (ev->u.delete_writer.guid));
-  delete_writer_nolinger (gv, &ev->u.delete_writer.guid);
+  ddsi_delete_writer_nolinger (gv, &ev->u.delete_writer.guid);
   delete_xevent (ev);
 }
 
-static void handle_individual_xevent (struct thread_state1 * const ts1, struct xevent *xev, struct nn_xpack *xp, ddsrt_mtime_t tnow)
+static void handle_individual_xevent (struct thread_state * const thrst, struct xevent *xev, struct nn_xpack *xp, ddsrt_mtime_t tnow)
 {
   struct xeventq *xevq = xev->evq;
   /* We relinquish the lock while processing the event, but require it
@@ -1136,7 +1136,7 @@ static void handle_individual_xevent (struct thread_state1 * const ts1, struct x
         handle_xevk_spdp (xp, xev, tnow);
         break;
       case XEVK_PMD_UPDATE:
-        handle_xevk_pmd_update (ts1, xp, xev, tnow);
+        handle_xevk_pmd_update (thrst, xp, xev, tnow);
         break;
       case XEVK_DELETE_WRITER:
         handle_xevk_delete_writer (xp, xev, tnow);
@@ -1171,12 +1171,12 @@ static void handle_individual_xevent_nt (struct xevent_nt *xev, struct nn_xpack 
   ddsrt_free (xev);
 }
 
-static void handle_timed_xevent (struct thread_state1 * const ts1, struct xevent *xev, struct nn_xpack *xp, ddsrt_mtime_t tnow /* monotonic */)
+static void handle_timed_xevent (struct thread_state * const thrst, struct xevent *xev, struct nn_xpack *xp, ddsrt_mtime_t tnow /* monotonic */)
 {
    /* This function handles the individual xevent irrespective of
       whether it is a "timed" or "non-timed" xevent */
   assert (xev->tsched.v != TSCHED_DELETE);
-  handle_individual_xevent (ts1, xev, xp, tnow /* monotonic */);
+  handle_individual_xevent (thrst, xev, xp, tnow /* monotonic */);
 }
 
 static void handle_nontimed_xevent (struct xevent_nt *xev, struct nn_xpack *xp)
@@ -1199,7 +1199,7 @@ static void handle_nontimed_xevent (struct xevent_nt *xev, struct nn_xpack *xp)
   ASSERT_MUTEX_HELD (&xevq->lock);
 }
 
-static void handle_xevents (struct thread_state1 * const ts1, struct xeventq *xevq, struct nn_xpack *xp, ddsrt_mtime_t tnow /* monotonic */)
+static void handle_xevents (struct thread_state * const thrst, struct xeventq *xevq, struct nn_xpack *xp, ddsrt_mtime_t tnow /* monotonic */)
 {
   int xeventsToProcess = 1;
 
@@ -1230,8 +1230,8 @@ static void handle_xevents (struct thread_state1 * const ts1, struct xeventq *xe
            scheduled or not), so set to TSCHED_NEVER to indicate it
            currently isn't. */
         xev->tsched.v = DDS_NEVER;
-        thread_state_awake_to_awake_no_nest (ts1);
-        handle_timed_xevent (ts1, xev, xp, tnow);
+        thread_state_awake_to_awake_no_nest (thrst);
+        handle_timed_xevent (thrst, xev, xp, tnow);
       }
 
       /* Limited-bandwidth channels means events can take a LONG time
@@ -1242,7 +1242,7 @@ static void handle_xevents (struct thread_state1 * const ts1, struct xeventq *xe
     if (!non_timed_xmit_list_is_empty (xevq))
     {
       struct xevent_nt *xev = getnext_from_non_timed_xmit_list (xevq);
-      thread_state_awake_to_awake_no_nest (ts1);
+      thread_state_awake_to_awake_no_nest (thrst);
       handle_nontimed_xevent (xev, xp);
       tnow = ddsrt_time_monotonic ();
     }
@@ -1257,7 +1257,7 @@ static void handle_xevents (struct thread_state1 * const ts1, struct xeventq *xe
 
 static uint32_t xevent_thread (struct xeventq * xevq)
 {
-  struct thread_state1 * const ts1 = lookup_thread_state ();
+  struct thread_state * const thrst = lookup_thread_state ();
   struct nn_xpack *xp;
   ddsrt_mtime_t next_thread_cputime = { 0 };
 
@@ -1270,13 +1270,13 @@ static uint32_t xevent_thread (struct xeventq * xevq)
 
     LOG_THREAD_CPUTIME (&xevq->gv->logconfig, next_thread_cputime);
 
-    thread_state_awake_fixed_domain (ts1);
-    handle_xevents (ts1, xevq, xp, tnow);
+    thread_state_awake_fixed_domain (thrst);
+    handle_xevents (thrst, xevq, xp, tnow);
     /* Send to the network unlocked, as it may sleep due to bandwidth limitation */
     ddsrt_mutex_unlock (&xevq->lock);
     nn_xpack_send (xp, false);
     ddsrt_mutex_lock (&xevq->lock);
-    thread_state_asleep (ts1);
+    thread_state_asleep (thrst);
 
     if (!non_timed_xmit_list_is_empty (xevq) || xevq->terminate)
     {
@@ -1335,7 +1335,7 @@ void qxev_nt_callback (struct xeventq *evq, void (*cb) (void *arg), void *arg)
   ddsrt_mutex_unlock (&evq->lock);
 }
 
-void qxev_prd_entityid (struct proxy_reader *prd, const ddsi_guid_t *guid)
+void qxev_prd_entityid (struct ddsi_proxy_reader *prd, const ddsi_guid_t *guid)
 {
   struct ddsi_domaingv * const gv = prd->e.gv;
   struct nn_xmsg *msg;
@@ -1357,7 +1357,7 @@ void qxev_prd_entityid (struct proxy_reader *prd, const ddsi_guid_t *guid)
   }
 }
 
-void qxev_pwr_entityid (struct proxy_writer *pwr, const ddsi_guid_t *guid)
+void qxev_pwr_entityid (struct ddsi_proxy_writer *pwr, const ddsi_guid_t *guid)
 {
   struct ddsi_domaingv * const gv = pwr->e.gv;
   struct nn_xmsg *msg;

@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -27,7 +27,7 @@
 #include "dds/ddsi/ddsi_tkmap.h"
 #include "dds/ddsi/ddsi_serdata.h"
 #include "dds/ddsi/ddsi_threadmon.h"
-#include "dds/ddsi/q_entity.h"
+#include "dds/ddsi/ddsi_entity.h"
 #include "dds/ddsi/ddsi_config_impl.h"
 #include "dds/ddsi/q_gc.h"
 #include "dds/ddsi/ddsi_domaingv.h"
@@ -112,7 +112,7 @@ dds_return_t dds_init (void)
   ddsrt_mutex_init (&dds_global.m_mutex);
   ddsrt_cond_init (&dds_global.m_cond);
   ddsi_iid_init ();
-  thread_states_init (128);
+  thread_states_init ();
 
   if (dds_handle_server_init () != DDS_RETCODE_OK)
   {

@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -17,9 +17,16 @@
 
 #include "dds/version.h"
 #include "dds__entity.h"
-#include "dds/ddsi/q_entity.h"
+#include "dds/ddsi/ddsi_entity.h"
+#include "dds/ddsi/ddsi_entity_match.h"
+#include "dds/ddsi/ddsi_proxy_participant.h"
+#include "dds/ddsi/ddsi_proxy_endpoint.h"
 #include "dds/ddsi/ddsi_entity_index.h"
 #include "dds/ddsi/ddsi_typelib.h"
+#include "dds/ddsi/ddsi_xt_impl.h"
+#include "dds/ddsi/ddsi_xt_typelookup.h"
+#include "dds/ddsi/ddsi_cdrstream.h"
+#include "dds/ddsi/q_addrset.h"
 #include "dds/ddsrt/cdtors.h"
 #include "dds/ddsrt/misc.h"
 #include "dds/ddsrt/process.h"
@@ -51,6 +58,7 @@ static dds_entity_t g_subscriber2 = 0;
 
 typedef void (*sample_init) (void *s);
 typedef void (*sample_check) (void *s1, void *s2);
+typedef void (*typeobj_modify) (dds_sequence_DDS_XTypes_TypeIdentifierTypeObjectPair *type_id_obj_seq, uint32_t kind);
 
 static void xtypes_init (void)
 {
@@ -255,19 +263,71 @@ static void sample_check_XType3a_3 (void *ptr1, void *ptr2)
   CU_ASSERT_EQUAL_FATAL (s_rd->struct_3.long_5, 0);
 }
 
+static void sample_init_XType4 (void *ptr)
+{
+  XSpace_XType4 *sample = (XSpace_XType4 *) ptr;
+  uint32_t *s1 = ddsrt_malloc (999 * sizeof (*s1));
+  for (uint32_t n = 0; n < 999; n++) s1[n] = n;
+  uint32_t *s2 = ddsrt_malloc (10 * sizeof (*s2));
+  for (uint32_t n = 0; n < 10; n++) s2[n] = n;
+  sample->seq_1 = (dds_sequence_uint32) { ._length = 999, ._maximum = 999, ._buffer = s1, ._release = true };
+  sample->seq_2 = (dds_sequence_uint32) { ._length = 10, ._maximum = 10, ._buffer = s2, ._release = true };
+}
+static void sample_init_XType4a (void *ptr)
+{
+  XSpace_XType4a *sample = (XSpace_XType4a *) ptr;
+  uint32_t *s1 = ddsrt_malloc (999 * sizeof (*s1));
+  for (uint32_t n = 0; n < 999; n++) s1[n] = n;
+  uint32_t *s2 = ddsrt_malloc (5 * sizeof (*s2));
+  for (uint32_t n = 0; n < 5; n++) s2[n] = n;
+  sample->seq_1 = (dds_sequence_uint32) { ._length = 999, ._maximum = 999, ._buffer = s1, ._release = true };
+  sample->seq_2 = (dds_sequence_uint32) { ._length = 5, ._maximum = 5, ._buffer = s2, ._release = true };
+}
+static void sample_check_XType4a_4 (void *ptr1, void *ptr2)
+{
+  XSpace_XType4a *s_wr = (XSpace_XType4a *) ptr1;
+  XSpace_XType4 *s_rd = (XSpace_XType4 *) ptr2;
+  CU_ASSERT_FATAL (s_rd->seq_1._length == s_wr->seq_1._length && s_rd->seq_1._length == 999);
+  CU_ASSERT_FATAL (s_rd->seq_2._length == s_wr->seq_2._length && s_rd->seq_2._length == 5);
+  for (uint32_t n = 0; n < 999; n++)
+    CU_ASSERT_FATAL (s_rd->seq_1._buffer[n] == s_wr->seq_1._buffer[n] && s_rd->seq_1._buffer[n] == n);
+  for (uint32_t n = 0; n < 5; n++)
+    CU_ASSERT_FATAL (s_rd->seq_2._buffer[n] == s_wr->seq_2._buffer[n] && s_rd->seq_2._buffer[n] == n);
+}
+
+static void sample_init_XType5a (void *ptr)
+{
+  XSpace_XType5a *sample = (XSpace_XType5a *) ptr;
+  for (uint32_t n = 0; n < 999; n++) sample->str_1[n] = 'a';
+  for (uint32_t n = 0; n < 5; n++) sample->str_2[n] = 'a';
+  sample->str_1[999] = '\0';
+  sample->str_2[5] = '\0';
+}
+static void sample_check_XType5a_5 (void *ptr1, void *ptr2)
+{
+  XSpace_XType5a *s_wr = (XSpace_XType5a *) ptr1;
+  XSpace_XType5 *s_rd = (XSpace_XType5 *) ptr2;
+  CU_ASSERT_FATAL (strlen (s_rd->str_1) == strlen (s_wr->str_1) && strlen (s_rd->str_1) == 999);
+  CU_ASSERT_FATAL (strlen (s_rd->str_2) == strlen (s_wr->str_2) && strlen (s_rd->str_2) == 5);
+  CU_ASSERT_FATAL (!strcmp (s_rd->str_1, s_wr->str_1));
+  CU_ASSERT_FATAL (!strcmp (s_rd->str_2, s_wr->str_2));
+}
+
 #define D(n) XSpace_ ## n ## _desc
 #define I(n) sample_init_ ## n
 #define C(n) sample_check_ ## n
 CU_TheoryDataPoints (ddsc_xtypes, basic) = {
   CU_DataPoints (const char *,                   "mutable_bitmask",
   /*                                             |                      */"appendable_field",
-  /*                                             |                       |                       */"appendable_nested"),
-  CU_DataPoints (const dds_topic_descriptor_t *, &D(XType1),             &D(XType2),              &D(XType3),             ),
-  CU_DataPoints (const dds_topic_descriptor_t *, &D(XType1a),            &D(XType2a),             &D(XType3a),            ),
-  CU_DataPoints (sample_init,                    I(XType1),              I(XType2),               I(XType3),              ),
-  CU_DataPoints (sample_init,                    I(XType1a),             I(XType2a),              I(XType3a),             ),
-  CU_DataPoints (sample_check,                   C(XType1_1a),           C(XType2_2a),            C(XType3_3a),           ),
-  CU_DataPoints (sample_check,                   C(XType1a_1),           C(XType2a_2),            C(XType3a_3),           ),
+  /*                                             |                       |                       */"appendable_nested",
+  /*                                             |                       |                        |              */"mutable_seq",
+  /*                                             |                       |                        |               |              */"strlen_keys"      ),
+  CU_DataPoints (const dds_topic_descriptor_t *, &D(XType1),             &D(XType2),              &D(XType3),     &D(XType4),     &D(XType5),         ),
+  CU_DataPoints (const dds_topic_descriptor_t *, &D(XType1a),            &D(XType2a),             &D(XType3a),    &D(XType4a),    &D(XType5a),        ),
+  CU_DataPoints (sample_init,                    I(XType1),              I(XType2),               I(XType3),      I(XType4),      NULL,               ),
+  CU_DataPoints (sample_init,                    I(XType1a),             I(XType2a),              I(XType3a),     I(XType4a),     I(XType5a),         ),
+  CU_DataPoints (sample_check,                   C(XType1_1a),           C(XType2_2a),            C(XType3_3a),   NULL,           NULL,               ),
+  CU_DataPoints (sample_check,                   C(XType1a_1),           C(XType2a_2),            C(XType3a_3),   C(XType4a_4),   C(XType5a_5),       ),
 };
 
 CU_Theory ((const char *descr, const dds_topic_descriptor_t *desc1, const dds_topic_descriptor_t *desc2, sample_init fn_init1, sample_init fn_init2, sample_check fn_check1, sample_check fn_check2),
@@ -276,7 +336,9 @@ CU_Theory ((const char *descr, const dds_topic_descriptor_t *desc1, const dds_to
   for (int t = 0; t <= 1; t++)
   {
     printf ("Running test xtypes_basic: %s (run %d/2)\n", descr, t + 1);
-    do_test (t ? desc1 : desc2, NULL, t ? desc2 : desc1, NULL, true, t ? fn_init2 : fn_init1, true, t ? fn_check2 : fn_check1);
+    sample_init i = t ? fn_init2 : fn_init1;
+    sample_check c = t ? fn_check2 : fn_check1;
+    do_test (t ? desc1 : desc2, NULL, t ? desc2 : desc1, NULL, i != NULL, i, c != NULL, c);
   }
 }
 #undef D
@@ -478,3 +540,526 @@ CU_Theory ((const dds_topic_descriptor_t *rd_desc, const dds_topic_descriptor_t 
 #undef DM
 #undef DL
 #undef I
+
+
+static void typeinfo_ser (struct dds_type_meta_ser *ser, DDS_XTypes_TypeInformation *ti)
+{
+  dds_ostream_t os = { .m_buffer = NULL, .m_index = 0, .m_size = 0, .m_xcdr_version = CDR_ENC_VERSION_2 };
+  xcdr2_ser (ti, &DDS_XTypes_TypeInformation_desc, &os);
+  ser->data = os.m_buffer;
+  ser->sz = os.m_index;
+}
+
+static void typeinfo_deser (DDS_XTypes_TypeInformation **ti, const struct dds_type_meta_ser *ser)
+{
+  xcdr2_deser (ser->data, ser->sz, (void **) ti, &DDS_XTypes_TypeInformation_desc);
+}
+
+static void typemap_ser (struct dds_type_meta_ser *ser, DDS_XTypes_TypeMapping *tmap)
+{
+  dds_ostream_t os = { .m_buffer = NULL, .m_index = 0, .m_size = 0, .m_xcdr_version = CDR_ENC_VERSION_2 };
+  xcdr2_ser (tmap, &DDS_XTypes_TypeMapping_desc, &os);
+  ser->data = os.m_buffer;
+  ser->sz = os.m_index;
+}
+
+static void typemap_deser (DDS_XTypes_TypeMapping **tmap, const struct dds_type_meta_ser *ser)
+{
+  xcdr2_deser (ser->data, ser->sz, (void **) tmap, &DDS_XTypes_TypeMapping_desc);
+}
+
+static void test_proxy_rd_create (struct ddsi_domaingv *gv, const char *topic_name, DDS_XTypes_TypeInformation *ti, dds_return_t exp_ret, const ddsi_guid_t *pp_guid, const ddsi_guid_t *rd_guid)
+{
+  ddsi_plist_t *plist = ddsrt_calloc (1, sizeof (*plist));
+  plist->present |= PP_PARTICIPANT_LEASE_DURATION;
+  plist->participant_lease_duration = DDS_INFINITY;
+  plist->qos.present |= QP_TOPIC_NAME | QP_TYPE_NAME | QP_TYPE_INFORMATION | QP_DATA_REPRESENTATION;
+  plist->qos.topic_name = ddsrt_strdup (topic_name);
+  plist->qos.type_name = ddsrt_strdup ("dummy");
+  plist->qos.type_information = ddsi_typeinfo_dup ((struct ddsi_typeinfo *) ti);
+  plist->qos.data_representation.value.n = 1;
+  plist->qos.data_representation.value.ids = ddsrt_calloc (1, sizeof (*plist->qos.data_representation.value.ids));
+  plist->qos.data_representation.value.ids[0] = DDS_DATA_REPRESENTATION_XCDR2;
+
+  struct thread_state * const thrst = lookup_thread_state ();
+  thread_state_awake (thrst, gv);
+  struct addrset *as = new_addrset ();
+  add_locator_to_addrset (gv, as, &gv->loc_default_uc);
+  ref_addrset (as); // increase refc to 2, new_proxy_participant does not add a ref
+  int rc = ddsi_new_proxy_participant (gv, pp_guid, 0, NULL, as, as, plist, DDS_INFINITY, NN_VENDORID_ECLIPSE, 0, ddsrt_time_wallclock (), 1);
+  CU_ASSERT_FATAL (rc);
+
+  ddsi_xqos_mergein_missing (&plist->qos, &ddsi_default_qos_reader, ~(uint64_t)0);
+  rc = ddsi_new_proxy_reader (gv, pp_guid, rd_guid, as, plist, ddsrt_time_wallclock (), 1, 0);
+  CU_ASSERT_EQUAL_FATAL (rc, exp_ret);
+  ddsi_plist_fini (plist);
+  ddsrt_free (plist);
+  thread_state_asleep (thrst);
+}
+
+static void test_proxy_rd_matches (dds_entity_t wr, bool exp_match)
+{
+  struct dds_entity *x;
+  dds_return_t rc = dds_entity_pin (wr, &x);
+  CU_ASSERT_EQUAL_FATAL (rc, DDS_RETCODE_OK);
+  struct dds_writer *dds_wr = (struct dds_writer *) x;
+  CU_ASSERT_EQUAL_FATAL (dds_wr->m_wr->num_readers, exp_match ? 1 : 0);
+  dds_entity_unpin (x);
+}
+
+static void test_proxy_rd_fini (const ddsi_guid_t *pp_guid, const ddsi_guid_t *rd_guid)
+{
+  struct ddsi_domaingv *gv = get_domaingv (g_participant1);
+  struct thread_state * const thrst = lookup_thread_state ();
+  thread_state_awake (thrst, gv);
+  ddsi_delete_proxy_reader (gv, rd_guid, ddsrt_time_wallclock (), false);
+  ddsi_delete_proxy_participant_by_guid (gv, pp_guid, ddsrt_time_wallclock (), false);
+  thread_state_asleep (thrst);
+}
+
+/* Invalid hashed type (with valid hash type id) as top-level type */
+CU_Test (ddsc_xtypes, invalid_top_level_local_hash, .init = xtypes_init, .fini = xtypes_fini)
+{
+  char topic_name[100];
+  dds_topic_descriptor_t desc;
+  DDS_XTypes_TypeInformation *ti;
+
+  for (uint32_t n = 0; n < 6; n++)
+  {
+    // coverity[store_writes_const_field]
+    memcpy (&desc, &XSpace_to_toplevel_desc, sizeof (desc));
+    typeinfo_deser (&ti, &desc.type_information);
+    if (n % 2)
+    {
+      ddsi_typeid_fini_impl (&ti->minimal.typeid_with_size.type_id);
+      ddsi_typeid_copy_impl (&ti->minimal.typeid_with_size.type_id, &ti->minimal.dependent_typeids._buffer[n / 2].type_id);
+    }
+    else
+    {
+      ddsi_typeid_fini_impl (&ti->complete.typeid_with_size.type_id);
+      ddsi_typeid_copy_impl (&ti->complete.typeid_with_size.type_id, &ti->complete.dependent_typeids._buffer[n / 2].type_id);
+    }
+    typeinfo_ser (&desc.type_information, ti);
+
+    create_unique_topic_name ("ddsc_xtypes", topic_name, sizeof (topic_name));
+    dds_entity_t topic = dds_create_topic (g_participant1, &desc, topic_name, NULL, NULL);
+    CU_ASSERT_FATAL (topic < 0);
+
+    ddsi_typeinfo_fini ((ddsi_typeinfo_t *) ti);
+    ddsrt_free (ti);
+    ddsrt_free (desc.type_information.data);
+  }
+}
+
+/* Non-hashed type (with valid hash type id) as top-level type */
+CU_Test (ddsc_xtypes, invalid_top_level_local_non_hash, .init = xtypes_init, .fini = xtypes_fini)
+{
+  char topic_name[100];
+
+  dds_topic_descriptor_t desc;
+  // coverity[store_writes_const_field]
+  memcpy (&desc, &XSpace_to_toplevel_desc, sizeof (desc));
+
+  DDS_XTypes_TypeInformation *ti;
+  typeinfo_deser (&ti, &desc.type_information);
+
+  ddsi_typeid_fini_impl (&ti->minimal.typeid_with_size.type_id);
+  ti->minimal.typeid_with_size.type_id._d = DDS_XTypes_TK_UINT32;
+  typeinfo_ser (&desc.type_information, ti);
+
+  create_unique_topic_name ("ddsc_xtypes", topic_name, sizeof (topic_name));
+  dds_entity_t topic = dds_create_topic (g_participant1, &desc, topic_name, NULL, NULL);
+  CU_ASSERT_FATAL (topic < 0);
+
+  ddsi_typeinfo_fini ((ddsi_typeinfo_t *) ti);
+  ddsrt_free (ti);
+  ddsrt_free (desc.type_information.data);
+}
+
+static void mod_toplevel (dds_sequence_DDS_XTypes_TypeIdentifierTypeObjectPair *type_id_obj_seq, uint32_t kind)
+{
+  assert (kind == DDS_XTypes_EK_MINIMAL);
+  (void) kind;
+  assert (type_id_obj_seq->_buffer[0].type_object._u.minimal._d == DDS_XTypes_TK_STRUCTURE);
+  type_id_obj_seq->_buffer[0].type_object._u.minimal._u.struct_type.member_seq._buffer[0].common.member_flags = 0x7f;
+}
+
+static void mod_inherit (dds_sequence_DDS_XTypes_TypeIdentifierTypeObjectPair *type_id_obj_seq, uint32_t kind)
+{
+  assert (kind == DDS_XTypes_EK_MINIMAL);
+  (void) kind;
+  assert (type_id_obj_seq->_buffer[0].type_object._u.minimal._d == DDS_XTypes_TK_STRUCTURE);
+  ddsi_typeid_fini_impl (&type_id_obj_seq->_buffer[0].type_object._u.minimal._u.struct_type.header.base_type);
+  ddsi_typeid_copy_impl (&type_id_obj_seq->_buffer[0].type_object._u.minimal._u.struct_type.header.base_type,
+      &type_id_obj_seq->_buffer[0].type_object._u.minimal._u.struct_type.member_seq._buffer[0].common.member_type_id);
+}
+
+static void mod_uniondisc (dds_sequence_DDS_XTypes_TypeIdentifierTypeObjectPair *type_id_obj_seq, uint32_t kind)
+{
+  assert (kind == DDS_XTypes_EK_MINIMAL);
+  (void) kind;
+  assert (type_id_obj_seq->_buffer[0].type_object._u.minimal._d == DDS_XTypes_TK_UNION);
+  type_id_obj_seq->_buffer[0].type_object._u.minimal._u.union_type.discriminator.common.type_id._d = DDS_XTypes_TK_FLOAT32;
+}
+
+static void mod_unionmembers (dds_sequence_DDS_XTypes_TypeIdentifierTypeObjectPair *type_id_obj_seq, uint32_t kind)
+{
+  assert (kind == DDS_XTypes_EK_MINIMAL);
+  (void) kind;
+  assert (type_id_obj_seq->_buffer[0].type_object._u.minimal._d == DDS_XTypes_TK_UNION);
+  assert (type_id_obj_seq->_buffer[0].type_object._u.minimal._u.union_type.member_seq._length == 2);
+  type_id_obj_seq->_buffer[0].type_object._u.minimal._u.union_type.member_seq._buffer[0].common.member_flags |= DDS_XTypes_IS_DEFAULT;
+}
+
+static void mod_arraybound (dds_sequence_DDS_XTypes_TypeIdentifierTypeObjectPair *type_id_obj_seq, uint32_t kind)
+{
+  assert (kind == DDS_XTypes_EK_MINIMAL);
+  (void) kind;
+  assert (type_id_obj_seq->_buffer[0].type_object._u.minimal._d == DDS_XTypes_TK_STRUCTURE);
+  assert (type_id_obj_seq->_buffer[0].type_object._u.minimal._u.struct_type.member_seq._buffer[0].common.member_type_id._d == DDS_XTypes_TI_PLAIN_ARRAY_SMALL);
+  type_id_obj_seq->_buffer[0].type_object._u.minimal._u.struct_type.member_seq._buffer[0].common.member_type_id._u.array_sdefn.array_bound_seq._buffer[0] = 5;
+}
+
+static void modify_type_meta (dds_topic_descriptor_t *dst_desc, const dds_topic_descriptor_t *src_desc, typeobj_modify mod, bool update_typeinfo, uint32_t kind)
+{
+  // coverity[store_writes_const_field]
+  memcpy (dst_desc, src_desc, sizeof (*dst_desc));
+
+  DDS_XTypes_TypeInformation *ti = NULL;
+  if (update_typeinfo)
+    typeinfo_deser (&ti, &dst_desc->type_information);
+
+  DDS_XTypes_TypeMapping *tmap = NULL;
+  typemap_deser (&tmap, &dst_desc->type_mapping);
+
+  if (update_typeinfo)
+  {
+    assert (ti);
+    // confirm that top-level type is the first in type map
+    if (kind == DDS_XTypes_EK_MINIMAL || kind == DDS_XTypes_EK_BOTH)
+    {
+      assert (!ddsi_typeid_compare_impl (&ti->minimal.typeid_with_size.type_id, &tmap->identifier_object_pair_minimal._buffer[0].type_identifier));
+      ddsi_typeid_fini_impl (&ti->minimal.typeid_with_size.type_id);
+      for (uint32_t n = 0; n < tmap->identifier_object_pair_minimal._length; n++)
+        ddsi_typeid_fini_impl (&tmap->identifier_object_pair_minimal._buffer[n].type_identifier);
+    }
+    if (kind == DDS_XTypes_EK_COMPLETE || kind == DDS_XTypes_EK_BOTH)
+    {
+      assert (!ddsi_typeid_compare_impl (&ti->complete.typeid_with_size.type_id, &tmap->identifier_object_pair_complete._buffer[0].type_identifier));
+      ddsi_typeid_fini_impl (&ti->complete.typeid_with_size.type_id);
+      for (uint32_t n = 0; n < tmap->identifier_object_pair_complete._length; n++)
+        ddsi_typeid_fini_impl (&tmap->identifier_object_pair_complete._buffer[n].type_identifier);
+    }
+  }
+
+  // modify the specified object in the type mapping
+  if (kind == DDS_XTypes_EK_MINIMAL || kind == DDS_XTypes_EK_BOTH)
+    mod (&tmap->identifier_object_pair_minimal, DDS_XTypes_EK_MINIMAL);
+  if (kind == DDS_XTypes_EK_COMPLETE || kind == DDS_XTypes_EK_BOTH)
+    mod (&tmap->identifier_object_pair_complete, DDS_XTypes_EK_COMPLETE);
+
+  if (update_typeinfo)
+  {
+    // get hash-id for modified type and store in type map and replace top-level type id
+    if (kind == DDS_XTypes_EK_MINIMAL || kind == DDS_XTypes_EK_BOTH)
+    {
+      for (uint32_t n = 0; n < tmap->identifier_object_pair_minimal._length; n++)
+      {
+        ddsi_typeid_t type_id;
+        ddsi_typeobj_get_hash_id (&tmap->identifier_object_pair_minimal._buffer[n].type_object, &type_id);
+        ddsi_typeid_copy_impl (&tmap->identifier_object_pair_minimal._buffer[n].type_identifier, &type_id.x);
+        ddsi_typeid_fini (&type_id);
+      }
+      ddsi_typeid_copy_impl (&ti->minimal.typeid_with_size.type_id, &tmap->identifier_object_pair_minimal._buffer[0].type_identifier);
+    }
+    if (kind == DDS_XTypes_EK_COMPLETE || kind == DDS_XTypes_EK_BOTH)
+    {
+      for (uint32_t n = 0; n < tmap->identifier_object_pair_complete._length; n++)
+      {
+        ddsi_typeid_t type_id;
+        ddsi_typeobj_get_hash_id (&tmap->identifier_object_pair_complete._buffer[n].type_object, &type_id);
+        ddsi_typeid_copy_impl (&tmap->identifier_object_pair_complete._buffer[n].type_identifier, &type_id.x);
+        ddsi_typeid_fini (&type_id);
+      }
+      ddsi_typeid_copy_impl (&ti->complete.typeid_with_size.type_id, &tmap->identifier_object_pair_complete._buffer[0].type_identifier);
+    }
+  }
+
+  // replace the type map and type info in the topic descriptor with updated ones
+  if (update_typeinfo)
+    typeinfo_ser (&dst_desc->type_information, ti);
+  typemap_ser (&dst_desc->type_mapping, tmap);
+
+  // clean up
+  ddsi_typemap_fini ((ddsi_typemap_t *) tmap);
+  ddsrt_free (tmap);
+
+  if (update_typeinfo)
+  {
+    ddsi_typeinfo_fini ((ddsi_typeinfo_t *) ti);
+    ddsrt_free (ti);
+  }
+}
+
+#define D(n) XSpace_ ## n ## _desc
+CU_TheoryDataPoints (ddsc_xtypes, invalid_type_object_local) = {
+  CU_DataPoints (const char *,                    "invalid flag, non-matching typeid",
+  /*                                              |               */"invalid flag, matching typeid",
+  /*                                              |                |               */"invalid inheritance",
+  /*                                              |                |                |              */"invalid union discr",
+  /*                                              |                |                |               |                */"union multiple default",
+  /*                                              |                |                |               |                 |                   */"array bound overflow"),
+  CU_DataPoints (const dds_topic_descriptor_t *,  &D(to_toplevel), &D(to_toplevel), &D(to_inherit), &D(to_uniondisc), &D(to_unionmembers), &D(to_arraybound) ),
+  CU_DataPoints (typeobj_modify,                  mod_toplevel,    mod_toplevel,    mod_inherit,    mod_uniondisc,    mod_unionmembers,    mod_arraybound    ),
+  CU_DataPoints (bool,                            false,           true,            true,           true,             true,                true              ),
+};
+#undef D
+
+CU_Theory ((const char *test_descr, const dds_topic_descriptor_t *topic_desc, typeobj_modify mod, bool matching_typeinfo), ddsc_xtypes, invalid_type_object_local, .init = xtypes_init, .fini = xtypes_fini)
+{
+  char topic_name[100];
+  printf("Test invalid_type_object_local: %s\n", test_descr);
+
+  dds_topic_descriptor_t desc;
+  modify_type_meta (&desc, topic_desc, mod, matching_typeinfo, DDS_XTypes_EK_MINIMAL);
+
+  // test that topic creation fails
+  create_unique_topic_name ("ddsc_xtypes", topic_name, sizeof (topic_name));
+  dds_entity_t topic = dds_create_topic (g_participant1, &desc, topic_name, NULL, NULL);
+  CU_ASSERT_FATAL (topic < 0);
+
+  if (matching_typeinfo)
+    ddsrt_free (desc.type_information.data);
+  ddsrt_free (desc.type_mapping.data);
+}
+
+/* Invalid hashed type (with valid hash type id) as top-level type for proxy endpoint */
+CU_Test (ddsc_xtypes, invalid_top_level_remote_hash, .init = xtypes_init, .fini = xtypes_fini)
+{
+  dds_topic_descriptor_t desc;
+  DDS_XTypes_TypeInformation *ti;
+  struct ddsi_domaingv *gv = get_domaingv (g_participant1);
+  char topic_name[100];
+  create_unique_topic_name ("ddsc_xtypes", topic_name, sizeof (topic_name));
+
+  // create local topic so that types are in type lib and resolved
+  dds_entity_t topic = dds_create_topic (g_participant1, &XSpace_to_toplevel_desc, topic_name, NULL, NULL);
+  CU_ASSERT_FATAL (topic > 0);
+
+  // create type id with invalid top-level
+  // coverity[store_writes_const_field]
+  memcpy (&desc, &XSpace_to_toplevel_desc, sizeof (desc));
+  typeinfo_deser (&ti, &desc.type_information);
+  ddsi_typeid_fini_impl (&ti->minimal.typeid_with_size.type_id);
+  ddsi_typeid_copy_impl (&ti->minimal.typeid_with_size.type_id, &ti->minimal.dependent_typeids._buffer[0].type_id);
+
+  // create proxy reader with modified type
+  struct ddsi_guid pp_guid, rd_guid;
+  gen_test_guid (gv, &pp_guid, NN_ENTITYID_PARTICIPANT);
+  gen_test_guid (gv, &rd_guid, NN_ENTITYID_KIND_READER_NO_KEY);
+  test_proxy_rd_create (gv, topic_name, ti, DDS_RETCODE_BAD_PARAMETER, &pp_guid, &rd_guid);
+
+  // clean up
+  test_proxy_rd_fini (&pp_guid, &rd_guid);
+  ddsi_typeinfo_fini ((ddsi_typeinfo_t *) ti);
+  ddsrt_free (ti);
+}
+
+
+/* Invalid type object for proxy endpoint */
+#define D(n) XSpace_ ## n ## _desc
+CU_TheoryDataPoints (ddsc_xtypes, invalid_type_object_remote) = {
+  CU_DataPoints (const char *,
+  /*                                             */"invalid flag",
+  /*                                              |               */"invalid inheritance",
+  /*                                              |                |              */"invalid union discr"),
+  CU_DataPoints (const dds_topic_descriptor_t *,  &D(to_toplevel), &D(to_inherit), &D(to_uniondisc) ),
+  CU_DataPoints (typeobj_modify,                  mod_toplevel,    mod_inherit,    mod_uniondisc    )
+};
+#undef D
+
+CU_Theory ((const char *test_descr, const dds_topic_descriptor_t *topic_desc, typeobj_modify mod), ddsc_xtypes, invalid_type_object_remote, .init = xtypes_init, .fini = xtypes_fini)
+{
+  struct ddsi_domaingv *gv = get_domaingv (g_participant1);
+  printf("Test invalid_type_object_remote: %s\n", test_descr);
+
+  char topic_name[100];
+  create_unique_topic_name ("ddsc_xtypes", topic_name, sizeof (topic_name));
+
+  // local writer
+  dds_entity_t topic = dds_create_topic (g_participant1, topic_desc, topic_name, NULL, NULL);
+  CU_ASSERT_FATAL (topic > 0);
+  dds_entity_t wr = dds_create_writer (g_participant1, topic, NULL, NULL);
+  CU_ASSERT_FATAL (wr > 0);
+
+  dds_topic_descriptor_t desc;
+  modify_type_meta (&desc, topic_desc, mod, true, DDS_XTypes_EK_MINIMAL);
+
+  DDS_XTypes_TypeInformation *ti;
+  typeinfo_deser (&ti, &desc.type_information);
+  struct ddsi_guid pp_guid, rd_guid;
+  gen_test_guid (gv, &pp_guid, NN_ENTITYID_PARTICIPANT);
+  gen_test_guid (gv, &rd_guid, NN_ENTITYID_KIND_READER_NO_KEY);
+  test_proxy_rd_create (gv, topic_name, ti, DDS_RETCODE_OK, &pp_guid, &rd_guid);
+  test_proxy_rd_matches (wr, false);
+
+  struct ddsi_generic_proxy_endpoint **gpe_match_upd = NULL;
+  uint32_t n_match_upd = 0;
+
+  DDS_XTypes_TypeMapping *tmap;
+  typemap_deser (&tmap, &desc.type_mapping);
+  DDS_Builtin_TypeLookup_Reply reply = {
+    .header = { .remoteEx = DDS_RPC_REMOTE_EX_OK, .relatedRequestId = { .sequence_number = { .low = 1, .high = 0 }, .writer_guid = { .guidPrefix = { 0 }, .entityId = { .entityKind = DDSI_EK_WRITER, .entityKey = { 0 } } } } },
+    .return_data = { ._d = DDS_Builtin_TypeLookup_getTypes_HashId, ._u = { .getType = { ._d = DDS_RETCODE_OK, ._u = { .result =
+      { .types = { ._length = tmap->identifier_object_pair_minimal._length, ._maximum = tmap->identifier_object_pair_minimal._maximum, ._release = false, ._buffer = tmap->identifier_object_pair_minimal._buffer } } } } } }
+    };
+  ddsi_tl_add_types (gv, &reply, &gpe_match_upd, &n_match_upd);
+
+  // expect no match because of invalid types
+  CU_ASSERT_EQUAL_FATAL (n_match_upd, 0);
+  ddsrt_free (gpe_match_upd);
+
+  struct ddsi_type *type = ddsi_type_lookup (gv, (ddsi_typeid_t *) &tmap->identifier_object_pair_minimal._buffer[0].type_identifier);
+  CU_ASSERT_PTR_NOT_NULL_FATAL (type);
+  assert (type);
+  CU_ASSERT_EQUAL_FATAL (type->state, DDSI_TYPE_INVALID);
+
+  // clean up
+  test_proxy_rd_fini (&pp_guid, &rd_guid);
+  ddsi_typeinfo_fini ((ddsi_typeinfo_t *) ti);
+  ddsrt_free (ti);
+  ddsi_typemap_fini ((ddsi_typemap_t *) tmap);
+  ddsrt_free (tmap);
+  ddsrt_free (desc.type_information.data);
+  ddsrt_free (desc.type_mapping.data);
+}
+
+static void mod_dep_test (dds_sequence_DDS_XTypes_TypeIdentifierTypeObjectPair *type_id_obj_seq, uint32_t kind)
+{
+  // Remove member n2 from dep_test_nested
+  if (kind == DDS_XTypes_EK_MINIMAL)
+  {
+    assert (type_id_obj_seq->_buffer[1].type_object._u.minimal._d == DDS_XTypes_TK_STRUCTURE);
+    assert (type_id_obj_seq->_buffer[1].type_object._u.minimal._u.struct_type.member_seq._length == 2);
+    type_id_obj_seq->_buffer[1].type_object._u.minimal._u.struct_type.member_seq._length = 1;
+  }
+  else
+  {
+    assert (type_id_obj_seq->_buffer[1].type_object._u.complete._d == DDS_XTypes_TK_STRUCTURE);
+    assert (type_id_obj_seq->_buffer[1].type_object._u.complete._u.struct_type.member_seq._length == 2);
+    type_id_obj_seq->_buffer[1].type_object._u.complete._u.struct_type.member_seq._length = 1;
+  }
+
+  // Recalculate type ids for dep_test_nested and replace dep_test.f1 member type id
+  ddsi_typeid_t type_id;
+  if (kind == DDS_XTypes_EK_MINIMAL)
+  {
+    assert (type_id_obj_seq->_buffer[0].type_object._u.minimal._d == DDS_XTypes_TK_STRUCTURE);
+    ddsi_typeid_fini_impl (&type_id_obj_seq->_buffer[0].type_object._u.minimal._u.struct_type.member_seq._buffer[0].common.member_type_id);
+    ddsi_typeobj_get_hash_id (&type_id_obj_seq->_buffer[1].type_object, &type_id);
+    ddsi_typeid_copy_impl (&type_id_obj_seq->_buffer[0].type_object._u.minimal._u.struct_type.member_seq._buffer[0].common.member_type_id, &type_id.x);
+  }
+  else
+  {
+    assert (type_id_obj_seq->_buffer[0].type_object._u.complete._d == DDS_XTypes_TK_STRUCTURE);
+    ddsi_typeid_fini_impl (&type_id_obj_seq->_buffer[0].type_object._u.complete._u.struct_type.member_seq._buffer[0].common.member_type_id);
+    ddsi_typeobj_get_hash_id (&type_id_obj_seq->_buffer[1].type_object, &type_id);
+    ddsi_typeid_copy_impl (&type_id_obj_seq->_buffer[0].type_object._u.complete._u.struct_type.member_seq._buffer[0].common.member_type_id, &type_id.x);
+  }
+}
+
+CU_Test (ddsc_xtypes, resolve_dep_type, .init = xtypes_init, .fini = xtypes_fini)
+{
+  struct ddsi_domaingv *gv = get_domaingv (g_participant1);
+  char topic_name[100];
+  create_unique_topic_name ("ddsc_xtypes", topic_name, sizeof (topic_name));
+
+  // local writer
+  dds_entity_t topic = dds_create_topic (g_participant1, &XSpace_dep_test_desc, topic_name, NULL, NULL);
+  CU_ASSERT_FATAL (topic > 0);
+  dds_entity_t wr = dds_create_writer (g_participant1, topic, NULL, NULL);
+  CU_ASSERT_FATAL (wr > 0);
+
+  dds_topic_descriptor_t desc;
+  modify_type_meta (&desc, &XSpace_dep_test_desc, mod_dep_test, true, DDS_XTypes_EK_BOTH);
+
+  DDS_XTypes_TypeInformation *ti;
+  typeinfo_deser (&ti, &desc.type_information);
+  struct ddsi_guid pp_guid, rd_guid;
+  gen_test_guid (gv, &pp_guid, NN_ENTITYID_PARTICIPANT);
+  gen_test_guid (gv, &rd_guid, NN_ENTITYID_KIND_READER_NO_KEY);
+  test_proxy_rd_create (gv, topic_name, ti, DDS_RETCODE_OK, &pp_guid, &rd_guid);
+  test_proxy_rd_matches (wr, false);
+
+  struct ddsi_generic_proxy_endpoint **gpe_match_upd = NULL;
+  uint32_t n_match_upd = 0;
+  DDS_Builtin_TypeLookup_Reply reply;
+  DDS_XTypes_TypeMapping *tmap;
+  typemap_deser (&tmap, &desc.type_mapping);
+
+  // add proxy reader's top-level type
+  reply = (DDS_Builtin_TypeLookup_Reply) {
+    .header = { .remoteEx = DDS_RPC_REMOTE_EX_OK, .relatedRequestId = { .sequence_number = { .low = 1, .high = 0 }, .writer_guid = { .guidPrefix = { 0 }, .entityId = { .entityKind = DDSI_EK_WRITER, .entityKey = { 0 } } } } },
+    .return_data = { ._d = DDS_Builtin_TypeLookup_getTypes_HashId, ._u = { .getType = { ._d = DDS_RETCODE_OK, ._u = { .result =
+      { .types = { ._length = 1, ._maximum = 1, ._release = false, ._buffer = &tmap->identifier_object_pair_minimal._buffer[0] } } } } } }
+    };
+  ddsi_tl_add_types (gv, &reply, &gpe_match_upd, &n_match_upd);
+  // FIXME expect matching triggered (but matching would fail because deps are unresolved), this needs to be fixed in ddsi_tl_handle_reply
+  CU_ASSERT_EQUAL_FATAL (n_match_upd, 1);
+  ddsrt_free (gpe_match_upd);
+
+  // add nested type and expect match
+  gpe_match_upd = NULL;
+  n_match_upd = 0;
+  reply = (DDS_Builtin_TypeLookup_Reply) {
+    .header = { .remoteEx = DDS_RPC_REMOTE_EX_OK, .relatedRequestId = { .sequence_number = { .low = 1, .high = 0 }, .writer_guid = { .guidPrefix = { 0 }, .entityId = { .entityKind = DDSI_EK_WRITER, .entityKey = { 0 } } } } },
+    .return_data = { ._d = DDS_Builtin_TypeLookup_getTypes_HashId, ._u = { .getType = { ._d = DDS_RETCODE_OK, ._u = { .result =
+      { .types = { ._length = 1, ._maximum = 1, ._release = false, ._buffer = &tmap->identifier_object_pair_minimal._buffer[1] } } } } } }
+    };
+  ddsi_tl_add_types (gv, &reply, &gpe_match_upd, &n_match_upd);
+  CU_ASSERT_EQUAL_FATAL (n_match_upd, 1);
+
+  assert (gpe_match_upd);
+  for (uint32_t e = 0; e < n_match_upd; e++)
+    ddsi_update_proxy_endpoint_matching (gv, gpe_match_upd[e]);
+  ddsrt_free (gpe_match_upd);
+
+  test_proxy_rd_matches (wr, true);
+
+  // clean up
+  test_proxy_rd_fini (&pp_guid, &rd_guid);
+  ddsi_typeinfo_fini ((ddsi_typeinfo_t *) ti);
+  ddsrt_free (ti);
+  ddsi_typemap_fini ((ddsi_typemap_t *) tmap);
+  ddsrt_free (tmap);
+  ddsrt_free (desc.type_information.data);
+  ddsrt_free (desc.type_mapping.data);
+}
+
+CU_Test (ddsc_xtypes, get_type_info, .init = xtypes_init, .fini = xtypes_fini)
+{
+  char topic_name[100];
+  create_unique_topic_name ("ddsc_xtypes", topic_name, sizeof (topic_name));
+
+  dds_entity_t topic = dds_create_topic (g_participant1, &XSpace_XType1_desc, topic_name, NULL, NULL);
+  CU_ASSERT_FATAL (topic > 0);
+  dds_entity_t wr = dds_create_writer (g_participant1, topic, NULL, NULL);
+  CU_ASSERT_FATAL (wr > 0);
+  dds_entity_t rd = dds_create_reader (g_participant1, topic, NULL, NULL);
+  CU_ASSERT_FATAL (rd > 0);
+
+  dds_typeinfo_t *type_info_tp, *type_info_wr, *type_info_rd;
+  dds_return_t ret;
+  ret = dds_get_typeinfo (topic, &type_info_tp);
+  CU_ASSERT_EQUAL_FATAL (ret, DDS_RETCODE_OK);
+  ret = dds_get_typeinfo (wr, &type_info_wr);
+  CU_ASSERT_EQUAL_FATAL (ret, DDS_RETCODE_OK);
+  ret = dds_get_typeinfo (rd, &type_info_rd);
+  CU_ASSERT_EQUAL_FATAL (ret, DDS_RETCODE_OK);
+  CU_ASSERT_FATAL (ddsi_typeinfo_equal (type_info_tp, type_info_wr, DDSI_TYPE_INCLUDE_DEPS));
+  CU_ASSERT_FATAL (ddsi_typeinfo_equal (type_info_tp, type_info_rd, DDSI_TYPE_INCLUDE_DEPS));
+
+  dds_free_typeinfo (type_info_tp);
+  dds_free_typeinfo (type_info_wr);
+  dds_free_typeinfo (type_info_rd);
+}

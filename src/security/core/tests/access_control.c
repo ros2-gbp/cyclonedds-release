@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2020 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -28,6 +28,7 @@
 #include "dds/ddsi/ddsi_domaingv.h"
 #include "dds/ddsi/q_misc.h"
 #include "dds/ddsi/ddsi_xqos.h"
+#include "dds/ddsi/ddsi_participant.h"
 #include "dds__entity.h"
 
 #include "dds/security/dds_security_api.h"

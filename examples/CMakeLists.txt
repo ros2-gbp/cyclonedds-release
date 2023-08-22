@@ -1,5 +1,5 @@
 #
-# Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+# Copyright(c) 2006 to 2021 ZettaScale Technology and others
 #
 # This program and the accompanying materials are made available under the
 # terms of the Eclipse Public License v. 2.0 which is available at
@@ -51,6 +51,13 @@ if (ENABLE_TOPIC_DISCOVERY)
       listtopics/readme.rst
     DESTINATION "${CMAKE_INSTALL_EXAMPLESDIR}/listtopics"
     COMPONENT dev)
+  install(
+    FILES
+      dynsub/dynsub.c
+      dynsub/CMakeLists.txt
+      dynsub/readme.rst
+    DESTINATION "${CMAKE_INSTALL_EXAMPLESDIR}/dynsub"
+    COMPONENT dev)
 endif ()
 
 if (ENABLE_SHM)
@@ -65,24 +72,12 @@ if (ENABLE_SHM)
     COMPONENT dev)
 endif ()
 
-if (BUILD_DOCS)
-  find_package(Sphinx REQUIRED)
-  sphinx_add_docs(
-    examples_docs
-    BUILDER html
-    SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
-  install(
-    DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/examples_docs/"
-    DESTINATION "${CMAKE_INSTALL_EXAMPLESDIR}"
-    COMPONENT dev
-    PATTERN "_sources" EXCLUDE)
-endif()
-
 add_subdirectory(helloworld)
 add_subdirectory(roundtrip)
 add_subdirectory(throughput)
 if (ENABLE_TOPIC_DISCOVERY)
   add_subdirectory(listtopics)
+  add_subdirectory(dynsub)
 endif ()
 if (ENABLE_SHM)
   add_subdirectory(shm_throughput)

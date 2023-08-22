@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2020 ADLINK Technology Limited and others
+ * Copyright(c) 2020 to 2021 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -20,9 +20,9 @@ extern "C" {
 #endif
 
 struct addrset;
-struct writer;
+struct ddsi_writer;
 
-struct addrset *compute_writer_addrset (const struct writer *wr);
+struct addrset *compute_writer_addrset (const struct ddsi_writer *wr);
 
 #if defined (__cplusplus)
 }

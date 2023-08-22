@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2021 ADLINK Technology Limited and others
+ * Copyright(c) 2021 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -152,7 +152,9 @@ dds_return_t dds_data_allocator_free (dds_data_allocator_t *data_allocator, void
       case DDS_IOX_ALLOCATOR_KIND_SUBSCRIBER:
         if (ptr != NULL) {
           ddsrt_mutex_lock(&d->mutex);
+          shm_lock_iox_sub(d->ref.sub);
           iox_sub_release_chunk(d->ref.sub, ptr);
+          shm_unlock_iox_sub(d->ref.sub);
           ddsrt_mutex_unlock(&d->mutex);
         }
         break;

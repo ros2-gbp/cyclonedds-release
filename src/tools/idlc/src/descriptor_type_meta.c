@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2021 ADLINK Technology Limited and others
+ * Copyright(c) 2021 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -252,6 +252,7 @@ get_plain_typeid (const idl_pstate_t *pstate, struct descriptor_type_meta *dtm, 
     switch (idl_type (type_spec))
     {
       case IDL_BOOL: ti->_d = DDS_XTypes_TK_BOOLEAN; break;
+      case IDL_INT8: case IDL_CHAR: ti->_d = DDS_XTypes_TK_CHAR8; break;
       case IDL_UINT8: case IDL_OCTET: ti->_d = DDS_XTypes_TK_BYTE; break;
       case IDL_INT16: case IDL_SHORT: ti->_d = DDS_XTypes_TK_INT16; break;
       case IDL_INT32: case IDL_LONG: ti->_d = DDS_XTypes_TK_INT32; break;
@@ -262,7 +263,6 @@ get_plain_typeid (const idl_pstate_t *pstate, struct descriptor_type_meta *dtm, 
       case IDL_FLOAT: ti->_d = DDS_XTypes_TK_FLOAT32; break;
       case IDL_DOUBLE: ti->_d = DDS_XTypes_TK_FLOAT64; break;
       case IDL_LDOUBLE: ti->_d = DDS_XTypes_TK_FLOAT128; break;
-      case IDL_CHAR: ti->_d = DDS_XTypes_TK_CHAR8; break;
       case IDL_STRING:
       {
         if (!idl_is_bounded(type_spec)) {
@@ -616,6 +616,11 @@ set_xtypes_annotation_parameter_value(
       val->_d = DDS_XTypes_TK_BOOLEAN;
       val->_u.boolean_value = lit->value.bln;
       break;
+    case IDL_INT8:
+    case IDL_CHAR:
+      val->_d = DDS_XTypes_TK_CHAR8;
+      val->_u.char_value = lit->value.chr;
+      break;
     case IDL_OCTET:
     case IDL_UINT8:
       val->_d = DDS_XTypes_TK_BYTE;
@@ -658,10 +663,6 @@ set_xtypes_annotation_parameter_value(
     case IDL_DOUBLE:
       val->_d = DDS_XTypes_TK_FLOAT64;
       val->_u.float64_value = lit->value.dbl;
-      break;
-    case IDL_CHAR:
-      val->_d = DDS_XTypes_TK_CHAR8;
-      val->_u.char_value = lit->value.chr;
       break;
     /*  //enums are currently not allowed in min/max/range annotations
     case IDL_ENUM:
@@ -1429,11 +1430,14 @@ emit_sequence(
 
   (void) path;
   /* In case the sequence is not a plain collection type identifier, which means that the
-     sequence itself (not the element type) cannot be expressed by as a (non-hash) type
+     sequence itself (not the element type) cannot be expressed by a (non-hash) type
      identifier but also needs a type object, a hashed type is added for this sequence */
-  assert (!has_fully_descriptive_typeid (node));
   if (has_plain_collection_typeid (node))
     return IDL_VISIT_TYPE_SPEC;
+
+  /* Sequence node should not be a fully descriptive type (which does not need a hashed
+     type identifier. A fully descriptive sequence is handled in emit_declarator */
+  assert (!has_fully_descriptive_typeid (node));
 
   if (revisit) {
     assert (dtm->stack->to_minimal->_u.minimal._d == DDS_XTypes_TK_SEQUENCE);
@@ -1645,9 +1649,18 @@ generate_type_meta_ser_impl (
 
     if ((ret = get_typeid_with_size (&tidws, tm->ti_minimal, tm->to_minimal)) < 0)
       goto err_dep;
-    if ((ret = add_to_seq ((dds_sequence_t *) &type_information->minimal.dependent_typeids, &tidws, sizeof (tidws))) < 0)
-      goto err_dep;
-    type_information->minimal.dependent_typeid_count++;
+
+    /* Minimal type ids can be equal for different types (e.g. only type name differs for an typedef),
+       so check if the type id is already in the list and don't add duplicates */
+    bool found = false;
+    for (uint32_t n = 0; !found && n < type_information->minimal.dependent_typeids._length; n++)
+      found = !ddsi_typeid_compare_impl (&type_information->minimal.dependent_typeids._buffer[n].type_id, &tidws.type_id);
+    if (!found)
+    {
+      if ((ret = add_to_seq ((dds_sequence_t *) &type_information->minimal.dependent_typeids, &tidws, sizeof (tidws))) < 0)
+        goto err_dep;
+      type_information->minimal.dependent_typeid_count++;
+    }
 
     if ((ret = get_typeid_with_size (&tidws, tm->ti_complete, tm->to_complete)) < 0)
       goto err_dep;
@@ -1757,6 +1770,7 @@ generate_type_meta_ser (
   }
   memcpy (result->typeinfo, os_typeinfo.m_buffer, result->typeinfo_size);
   if ((result->typemap = malloc (result->typemap_size)) == NULL) {
+    free (result->typeinfo);
     rc = IDL_RETCODE_NO_MEMORY;
     goto err_nomem;
   }

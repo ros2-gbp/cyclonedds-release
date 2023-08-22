@@ -1,6 +1,5 @@
 #
-# Copyright(c) 2022 ZettaScale Technology
-# Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+# Copyright(c) 2006 to 2022 ZettaScale Technology and others
 #
 # This program and the accompanying materials are made available under the
 # terms of the Eclipse Public License v. 2.0 which is available at
@@ -25,14 +24,17 @@ idlc_generate(TARGET CdrStreamOptimize FILES CdrStreamOptimize.idl WARNINGS no-i
 if(ENABLE_TYPE_DISCOVERY)
   idlc_generate(TARGET XSpace FILES XSpace.idl XSpaceEnum.idl XSpaceMustUnderstand.idl XSpaceTypeConsistencyEnforcement.idl WARNINGS no-implicit-extensibility no-inherit-appendable)
   idlc_generate(TARGET XSpaceNoTypeInfo FILES XSpaceNoTypeInfo.idl NO_TYPE_INFO WARNINGS no-implicit-extensibility)
+  idlc_generate(TARGET TypeBuilderTypes FILES TypeBuilderTypes.idl WARNINGS no-implicit-extensibility)
 endif()
 
 set(ddsc_test_sources
+    "asymdisconnect.c"
     "basic.c"
     "builtin_topics.c"
     "cdr.c"
     "config.c"
     "data_avail_stress.c"
+    "destorder.c"
     "discstress.c"
     "dispose.c"
     "domain.c"
@@ -67,6 +69,7 @@ set(ddsc_test_sources
     "topic_find_local.c"
     "transientlocal.c"
     "types.c"
+    "uninitialized.c"
     "unregister.c"
     "unsupported.c"
     "userdata.c"
@@ -94,13 +97,14 @@ endif()
 
 if(ENABLE_TYPE_DISCOVERY)
   list(APPEND ddsc_test_sources
-    "typelookup.c"
     "xtypes.c"
-    "data_representation.c")
+    "data_representation.c"
+    "typebuilder.c")
 endif()
 
 if(ENABLE_TOPIC_DISCOVERY)
   list(APPEND ddsc_test_sources
+    "typelookup.c"
     "topic_discovery.c"
     "topic_find_global.c")
 endif()
@@ -122,7 +126,7 @@ target_link_libraries(cunit_ddsc PRIVATE
 
 if(ENABLE_TYPE_DISCOVERY)
   target_link_libraries(cunit_ddsc PRIVATE
-  XSpace XSpaceNoTypeInfo)
+  XSpace XSpaceNoTypeInfo TypeBuilderTypes)
 endif()
 
 # Setup environment for config-tests

@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2019 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2020 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -701,9 +701,13 @@ DDS_Security_Deserialize_PropertyQosPolicy(
     if (!DDS_Security_Deserialize_PropertySeq(dser, &policy->value))
         return 0;
 
-    if (sl - dser->remain > len)
-        return DDS_Security_Deserialize_BinaryPropertySeq(dser, &policy->binary_value);
-
+    DDS_Security_Deserialize_align(dser, 4);
+    size_t consumed = sl - dser->remain;
+    if (consumed > len) {
+        return 0;
+    } else if (len - consumed >= 4) {
+         return DDS_Security_Deserialize_BinaryPropertySeq(dser, &policy->binary_value);
+    }
     return 1;
 }
 

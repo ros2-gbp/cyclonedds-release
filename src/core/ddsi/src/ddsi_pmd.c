@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2019 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2020 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -17,9 +17,11 @@
 #include "dds/ddsi/ddsi_serdata_pserop.h"
 #include "dds/ddsi/ddsi_tkmap.h"
 #include "dds/ddsi/q_bswap.h"
-#include "dds/ddsi/q_entity.h"
+#include "dds/ddsi/ddsi_entity.h"
 #include "dds/ddsi/ddsi_entity_index.h"
 #include "dds/ddsi/ddsi_domaingv.h"
+#include "dds/ddsi/ddsi_participant.h"
+#include "dds/ddsi/ddsi_proxy_participant.h"
 #include "dds/ddsi/q_lease.h"
 #include "dds/ddsi/q_log.h"
 #include "dds/ddsi/q_misc.h"
@@ -41,32 +43,32 @@ size_t participant_message_data_nops_key = sizeof (participant_message_data_ops_
 
 void write_pmd_message_guid (struct ddsi_domaingv * const gv, struct ddsi_guid *pp_guid, unsigned pmd_kind)
 {
-  struct thread_state1 * const ts1 = lookup_thread_state ();
+  struct thread_state * const thrst = lookup_thread_state ();
   struct lease *lease;
-  thread_state_awake (ts1, gv);
-  struct participant *pp = entidx_lookup_participant_guid (gv->entity_index, pp_guid);
+  thread_state_awake (thrst, gv);
+  struct ddsi_participant *pp = entidx_lookup_participant_guid (gv->entity_index, pp_guid);
   if (pp == NULL)
     GVTRACE ("write_pmd_message("PGUIDFMT") - builtin pmd writer not found\n", PGUID (*pp_guid));
   else
   {
     if ((lease = ddsrt_atomic_ldvoidp (&pp->minl_man)) != NULL)
       lease_renew (lease, ddsrt_time_elapsed());
-    write_pmd_message (ts1, NULL, pp, pmd_kind);
+    write_pmd_message (thrst, NULL, pp, pmd_kind);
   }
-  thread_state_asleep (ts1);
+  thread_state_asleep (thrst);
 }
 
-void write_pmd_message (struct thread_state1 * const ts1, struct nn_xpack *xp, struct participant *pp, unsigned pmd_kind)
+void write_pmd_message (struct thread_state * const thrst, struct nn_xpack *xp, struct ddsi_participant *pp, unsigned pmd_kind)
 {
 #define PMD_DATA_LENGTH 1
   struct ddsi_domaingv * const gv = pp->e.gv;
-  struct writer *wr;
+  struct ddsi_writer *wr;
   unsigned char data[PMD_DATA_LENGTH] = { 0 };
   ParticipantMessageData_t pmd;
   struct ddsi_serdata *serdata;
   struct ddsi_tkmap_instance *tk;
 
-  if ((wr = get_builtin_writer (pp, NN_ENTITYID_P2P_BUILTIN_PARTICIPANT_MESSAGE_WRITER)) == NULL)
+  if ((wr = ddsi_get_builtin_writer (pp, NN_ENTITYID_P2P_BUILTIN_PARTICIPANT_MESSAGE_WRITER)) == NULL)
   {
     GVTRACE ("write_pmd_message("PGUIDFMT") - builtin pmd writer not found\n", PGUID (pp->e.guid));
     return;
@@ -80,7 +82,7 @@ void write_pmd_message (struct thread_state1 * const ts1, struct nn_xpack *xp, s
   serdata->timestamp = ddsrt_time_wallclock ();
 
   tk = ddsi_tkmap_lookup_instance_ref (gv->m_tkmap, serdata);
-  write_sample_nogc (ts1, xp, wr, serdata, tk);
+  write_sample_nogc (thrst, xp, wr, serdata, tk);
   ddsi_tkmap_instance_unref (gv->m_tkmap, tk);
 #undef PMD_DATA_LENGTH
 }
@@ -89,7 +91,7 @@ void handle_pmd_message (const struct receiver_state *rst, struct ddsi_serdata *
 {
   /* use sample with knowledge of internal representation: there's a deserialized sample inside already */
   const struct ddsi_serdata_pserop *sample = (const struct ddsi_serdata_pserop *) sample_common;
-  struct proxy_participant *proxypp;
+  struct ddsi_proxy_participant *proxypp;
   ddsi_guid_t ppguid;
   struct lease *l;
   RSTTRACE (" PMD ST%"PRIx32, sample->c.statusinfo);
@@ -117,7 +119,7 @@ void handle_pmd_message (const struct receiver_state *rst, struct ddsi_serdata *
       const ParticipantMessageData_t *pmd = sample->sample;
       ppguid.prefix = pmd->participantGuidPrefix;
       ppguid.entityid.u = NN_ENTITYID_PARTICIPANT;
-      if (delete_proxy_participant_by_guid (rst->gv, &ppguid, sample->c.timestamp, 0) < 0)
+      if (ddsi_delete_proxy_participant_by_guid (rst->gv, &ppguid, sample->c.timestamp, 0) < 0)
         RSTTRACE (" unknown");
       else
         RSTTRACE (" delete");

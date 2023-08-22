@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2021 ADLINK Technology Limited and others
+ * Copyright(c) 2021 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -437,7 +437,7 @@ static idl_intval_t bitval(const idl_const_expr_t *const_expr)
 
   const idl_bit_value_t *val = (idl_bit_value_t *)const_expr;
 
-  return (idl_intval_t){.type = IDL_ULLONG, .value = {.ullng = (uint64_t) (0x1 << val->position.value)} };
+  return (idl_intval_t){.type = IDL_ULLONG, .value = {.ullng = (uint64_t) (0x1ull << val->position.value)} };
 }
 
 #undef u

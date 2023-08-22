@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -1860,7 +1860,8 @@ static void delete_last_sample (struct nn_reorder *reorder)
     /* Last sample is in an interval of its own - delete it, and
        recalc max_sampleiv. */
     TRACE (reorder, "  delete_last_sample: in singleton interval\n");
-    reorder->discarded_bytes += last->sc.first->sampleinfo->size;
+    if (last->sc.first->sampleinfo)
+      reorder->discarded_bytes += last->sc.first->sampleinfo->size;
     fragchain = last->sc.first->fragchain;
     ddsrt_avl_delete (&reorder_sampleivtree_treedef, &reorder->sampleivtree, reorder->max_sampleiv);
     reorder->max_sampleiv = ddsrt_avl_find_max (&reorder_sampleivtree_treedef, &reorder->sampleivtree);
@@ -1884,10 +1885,11 @@ static void delete_last_sample (struct nn_reorder *reorder)
       pe = e;
       e = e->next;
     } while (e != last->sc.last);
-    reorder->discarded_bytes += e->sampleinfo->size;
+    if (e->sampleinfo)
+      reorder->discarded_bytes += e->sampleinfo->size;
     fragchain = e->fragchain;
     pe->next = NULL;
-    assert (pe->sampleinfo->seq + 1 < last->maxp1);
+    assert (pe->sampleinfo == NULL || pe->sampleinfo->seq + 1 < last->maxp1);
     last->sc.last = pe;
     last->maxp1--;
     last->n_samples--;
@@ -2462,7 +2464,7 @@ struct nn_dqueue {
 
   struct nn_rsample_chain sc;
 
-  struct thread_state1 *ts;
+  struct thread_state *thrst;
   struct ddsi_domaingv *gv;
   char *name;
   uint32_t max_samples;
@@ -2512,9 +2514,9 @@ static enum dqueue_elem_kind dqueue_elem_kind (const struct nn_rsample_chain_ele
 
 static uint32_t dqueue_thread (struct nn_dqueue *q)
 {
-  struct thread_state1 * const ts1 = lookup_thread_state ();
+  struct thread_state * const thrst = lookup_thread_state ();
 #if DDSRT_HAVE_RUSAGE
-  struct ddsi_domaingv const * const gv = ddsrt_atomic_ldvoidp (&ts1->gv);
+  struct ddsi_domaingv const * const gv = ddsrt_atomic_ldvoidp (&thrst->gv);
 #endif
   ddsrt_mtime_t next_thread_cputime = { 0 };
   int keepgoing = 1;
@@ -2534,7 +2536,7 @@ static uint32_t dqueue_thread (struct nn_dqueue *q)
     q->sc.first = q->sc.last = NULL;
     ddsrt_mutex_unlock (&q->lock);
 
-    thread_state_awake_fixed_domain (ts1);
+    thread_state_awake_fixed_domain (thrst);
     while (sc.first)
     {
       struct nn_rsample_chain_elem *e = sc.first;
@@ -2543,7 +2545,7 @@ static uint32_t dqueue_thread (struct nn_dqueue *q)
       if (ddsrt_atomic_dec32_ov (&q->nof_samples) == 1) {
         ddsrt_cond_broadcast (&q->cond);
       }
-      thread_state_awake_to_awake_no_nest (ts1);
+      thread_state_awake_to_awake_no_nest (thrst);
       switch (dqueue_elem_kind (e))
       {
         case DQEK_DATA:
@@ -2595,7 +2597,7 @@ static uint32_t dqueue_thread (struct nn_dqueue *q)
       }
     }
 
-    thread_state_asleep (ts1);
+    thread_state_asleep (thrst);
     ddsrt_mutex_lock (&q->lock);
   }
   ddsrt_mutex_unlock (&q->lock);
@@ -2616,7 +2618,7 @@ struct nn_dqueue *nn_dqueue_new (const char *name, const struct ddsi_domaingv *g
   q->handler_arg = arg;
   q->sc.first = q->sc.last = NULL;
   q->gv = (struct ddsi_domaingv *) gv;
-  q->ts = NULL;
+  q->thrst = NULL;
 
   ddsrt_mutex_init (&q->lock);
   ddsrt_cond_init (&q->cond);
@@ -2636,7 +2638,7 @@ bool nn_dqueue_start (struct nn_dqueue *q)
   if ((thrname = ddsrt_malloc (thrnamesz)) == NULL)
     return false;
   (void) snprintf (thrname, thrnamesz, "dq.%s", q->name);
-  dds_return_t ret = create_thread (&q->ts, q->gv, thrname, (uint32_t (*) (void *)) dqueue_thread, q);
+  dds_return_t ret = create_thread (&q->thrst, q->gv, thrname, (uint32_t (*) (void *)) dqueue_thread, q);
   ddsrt_free (thrname);
   return ret == DDS_RETCODE_OK;
 }
@@ -2769,7 +2771,7 @@ void nn_dqueue_wait_until_empty_if_full (struct nn_dqueue *q)
 
 static void dqueue_free_remaining_elements (struct nn_dqueue *q)
 {
-  assert (q->ts == NULL);
+  assert (q->thrst == NULL);
   while (q->sc.first)
   {
     struct nn_rsample_chain_elem *e = q->sc.first;
@@ -2797,13 +2799,13 @@ void nn_dqueue_free (struct nn_dqueue *q)
      malloced or freed, but instead lives on the stack for a little
      while.  It would be a shame to fail in free() due to a lack of
      heap space, would it not? */
-  if (q->ts)
+  if (q->thrst)
   {
     struct nn_dqueue_bubble b;
     b.kind = NN_DQBK_STOP;
     nn_dqueue_enqueue_bubble (q, &b);
 
-    join_thread (q->ts);
+    join_thread (q->thrst);
     assert (q->sc.first == NULL);
   }
   else
