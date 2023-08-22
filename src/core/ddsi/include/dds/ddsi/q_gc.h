@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2021 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -23,15 +23,15 @@ struct gcreq;
 struct gcreq_queue;
 struct ddsi_domaingv;
 
-struct writer;
-struct reader;
-struct proxy_writer;
-struct proxy_reader;
+struct ddsi_writer;
+struct ddsi_reader;
+struct ddsi_proxy_writer;
+struct ddsi_proxy_reader;
 
 typedef void (*gcreq_cb_t) (struct gcreq *gcreq);
 
 struct idx_vtime {
-  uint32_t idx;
+  struct thread_state *thrst;
   vtime_t vtime;
 };
 

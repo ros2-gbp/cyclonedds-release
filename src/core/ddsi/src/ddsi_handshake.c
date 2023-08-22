@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2021 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -19,7 +19,9 @@
 #include "dds/ddsi/q_bswap.h"
 #include "dds/ddsi/ddsi_entity_index.h"
 #include "dds/ddsi/ddsi_plist.h"
-#include "dds/ddsi/q_entity.h"
+#include "dds/ddsi/ddsi_entity.h"
+#include "dds/ddsi/ddsi_participant.h"
+#include "dds/ddsi/ddsi_proxy_participant.h"
 #include "dds/ddsi/q_gc.h"
 #include "dds/security/dds_security_api_types.h"
 #include "dds/security/dds_security_api.h"
@@ -115,7 +117,7 @@ static int compare_handshake(const void *va, const void *vb)
   return r;
 }
 
-static bool validate_handshake(struct ddsi_handshake *handshake, struct participant **pp, struct proxy_participant **proxypp)
+static bool validate_handshake(struct ddsi_handshake *handshake, struct ddsi_participant **pp, struct ddsi_proxy_participant **proxypp)
 {
   if (ddsrt_atomic_ld32(&handshake->deleting) > 0)
     return false;
@@ -511,7 +513,7 @@ static const dds_security_fsm_transition handshake_transistions [] =
 
 
 
-static bool send_handshake_message(const struct ddsi_handshake *handshake, DDS_Security_DataHolder *token, struct participant *pp, struct proxy_participant *proxypp, int request)
+static bool send_handshake_message(const struct ddsi_handshake *handshake, DDS_Security_DataHolder *token, struct ddsi_participant *pp, struct ddsi_proxy_participant *proxypp, int request)
 {
   bool ret = false;
   nn_dataholderseq_t mdata;
@@ -533,7 +535,7 @@ static bool send_handshake_message(const struct ddsi_handshake *handshake, DDS_S
 }
 
 static DDS_Security_ValidationResult_t validate_remote_identity_impl(struct ddsi_handshake *handshake, dds_security_authentication *auth,
-    struct participant *pp, struct proxy_participant *proxypp)
+    struct ddsi_participant *pp, struct ddsi_proxy_participant *proxypp)
 {
   DDS_Security_ValidationResult_t ret;
   DDS_Security_IdentityToken remote_identity_token;
@@ -592,8 +594,8 @@ static void func_validate_remote_identity(struct dds_security_fsm *fsm, void *ar
   DDS_Security_ValidationResult_t ret;
   struct ddsi_handshake *handshake = (struct ddsi_handshake*)arg;
   dds_security_authentication *auth = handshake->auth;
-  struct participant *pp;
-  struct proxy_participant *proxypp;
+  struct ddsi_participant *pp;
+  struct ddsi_proxy_participant *proxypp;
 
   if (!validate_handshake(handshake, &pp, &proxypp))
     return;
@@ -607,8 +609,8 @@ static void func_validate_remote_identity(struct dds_security_fsm *fsm, void *ar
 static void func_handshake_init_message_resend(struct dds_security_fsm *fsm, void *arg)
 {
   struct ddsi_handshake *handshake = arg;
-  struct participant *pp;
-  struct proxy_participant *proxypp;
+  struct ddsi_participant *pp;
+  struct ddsi_proxy_participant *proxypp;
 
   DDSRT_UNUSED_ARG(fsm);
 
@@ -624,7 +626,7 @@ static void func_handshake_init_message_resend(struct dds_security_fsm *fsm, voi
 }
 
 static DDS_Security_ValidationResult_t begin_handshake_reply_impl(struct ddsi_handshake *handshake, dds_security_authentication *auth,
-    struct participant *pp, struct proxy_participant *proxypp)
+    struct ddsi_participant *pp, struct ddsi_proxy_participant *proxypp)
 {
   DDS_Security_ValidationResult_t ret;
   DDS_Security_SecurityException exception = {0};
@@ -688,8 +690,8 @@ static void func_begin_handshake_reply(struct dds_security_fsm *fsm, void *arg)
   DDS_Security_ValidationResult_t ret;
   struct ddsi_handshake *handshake = arg;
   dds_security_authentication *auth = handshake->auth;
-  struct participant *pp;
-  struct proxy_participant *proxypp;
+  struct ddsi_participant *pp;
+  struct ddsi_proxy_participant *proxypp;
 
   if (!validate_handshake(handshake, &pp, &proxypp))
      return;
@@ -705,8 +707,8 @@ static void func_validate_remote_and_begin_reply(struct dds_security_fsm *fsm, v
   DDS_Security_ValidationResult_t ret;
   struct ddsi_handshake *handshake = arg;
   dds_security_authentication *auth = handshake->auth;
-  struct participant *pp;
-  struct proxy_participant *proxypp;
+  struct ddsi_participant *pp;
+  struct ddsi_proxy_participant *proxypp;
 
   if (!validate_handshake(handshake, &pp, &proxypp))
     return;
@@ -736,8 +738,8 @@ static void func_begin_handshake_request(struct dds_security_fsm *fsm, void *arg
   DDS_Security_SecurityException exception = {0};
   struct ddsi_handshake *handshake = arg;
   dds_security_authentication *auth = handshake->auth;
-  struct participant *pp;
-  struct proxy_participant *proxypp;
+  struct ddsi_participant *pp;
+  struct ddsi_proxy_participant *proxypp;
 
   if (!validate_handshake(handshake, &pp, &proxypp))
     return;
@@ -812,8 +814,8 @@ static void func_process_handshake(struct dds_security_fsm *fsm, void *arg)
   DDS_Security_SecurityException exception = {0};
   struct ddsi_handshake *handshake = arg;
   dds_security_authentication *auth = handshake->auth;
-  struct participant *pp;
-  struct proxy_participant *proxypp;
+  struct ddsi_participant *pp;
+  struct ddsi_proxy_participant *proxypp;
 
   if (!validate_handshake(handshake, &pp, &proxypp))
     return;
@@ -875,8 +877,8 @@ handshake_failed:
 static void func_send_crypto_tokens(struct dds_security_fsm *fsm, void *arg)
 {
   struct ddsi_handshake *handshake = arg;
-  struct participant *pp;
-  struct proxy_participant *proxypp;
+  struct ddsi_participant *pp;
+  struct ddsi_proxy_participant *proxypp;
 
   if (!validate_handshake(handshake, &pp, &proxypp))
     return;
@@ -897,8 +899,8 @@ static void func_send_crypto_tokens(struct dds_security_fsm *fsm, void *arg)
 static void func_send_crypto_tokens_final(struct dds_security_fsm *fsm, void *arg)
 {
   struct ddsi_handshake *handshake = arg;
-  struct participant *pp;
-  struct proxy_participant *proxypp;
+  struct ddsi_participant *pp;
+  struct ddsi_proxy_participant *proxypp;
 
   if (!validate_handshake(handshake, &pp, &proxypp))
     return;
@@ -919,8 +921,8 @@ static void func_send_crypto_tokens_final(struct dds_security_fsm *fsm, void *ar
 static void func_handshake_message_resend(struct dds_security_fsm *fsm, void *arg)
 {
   struct ddsi_handshake *handshake = arg;
-  struct participant *pp;
-  struct proxy_participant *proxypp;
+  struct ddsi_participant *pp;
+  struct ddsi_proxy_participant *proxypp;
 
   DDSRT_UNUSED_ARG(fsm);
   DDSRT_UNUSED_ARG(arg);
@@ -939,8 +941,8 @@ static void func_handshake_message_resend(struct dds_security_fsm *fsm, void *ar
 static void func_validation_ok(struct dds_security_fsm *fsm, void *arg)
 {
   struct ddsi_handshake *handshake = arg;
-  struct participant *pp;
-  struct proxy_participant *proxypp;
+  struct ddsi_participant *pp;
+  struct ddsi_proxy_participant *proxypp;
 
   DDSRT_UNUSED_ARG(fsm);
 
@@ -957,8 +959,8 @@ static void func_validation_ok(struct dds_security_fsm *fsm, void *arg)
 static void func_validation_failed(struct dds_security_fsm *fsm, void *arg)
 {
   struct ddsi_handshake *handshake = arg;
-  struct participant *pp;
-  struct proxy_participant *proxypp;
+  struct ddsi_participant *pp;
+  struct ddsi_proxy_participant *proxypp;
 
   DDSRT_UNUSED_ARG(fsm);
 
@@ -975,8 +977,8 @@ static void func_validation_failed(struct dds_security_fsm *fsm, void *arg)
 static void func_handshake_timeout(struct dds_security_fsm *fsm, void *arg)
 {
   struct ddsi_handshake *handshake = arg;
-  struct participant *pp;
-  struct proxy_participant *proxypp;
+  struct ddsi_participant *pp;
+  struct ddsi_proxy_participant *proxypp;
 
   DDSRT_UNUSED_ARG(fsm);
 
@@ -991,7 +993,7 @@ static void func_handshake_timeout(struct dds_security_fsm *fsm, void *arg)
 }
 
 
-static struct ddsi_handshake * ddsi_handshake_create(struct participant *pp, struct proxy_participant *proxypp, ddsi_handshake_end_cb_t callback)
+static struct ddsi_handshake * ddsi_handshake_create(struct ddsi_participant *pp, struct ddsi_proxy_participant *proxypp, ddsi_handshake_end_cb_t callback)
 {
   const struct ddsi_domaingv * gv = pp->e.gv;
   struct ddsi_hsadmin *hsadmin = pp->e.gv->hsadmin;
@@ -1071,7 +1073,7 @@ void ddsi_handshake_release(struct ddsi_handshake *handshake)
   }
 }
 
-void ddsi_handshake_handle_message(struct ddsi_handshake *handshake, const struct participant *pp, const struct proxy_participant *proxypp, const struct nn_participant_generic_message *msg)
+void ddsi_handshake_handle_message(struct ddsi_handshake *handshake, const struct ddsi_participant *pp, const struct ddsi_proxy_participant *proxypp, const struct nn_participant_generic_message *msg)
 {
   handshake_event_t event = EVENT_VALIDATION_FAILED;
 
@@ -1151,8 +1153,8 @@ invalid_message:
 
 void ddsi_handshake_crypto_tokens_received(struct ddsi_handshake *handshake)
 {
-  struct participant *pp;
-  struct proxy_participant *proxypp;
+  struct ddsi_participant *pp;
+  struct ddsi_proxy_participant *proxypp;
 
   assert(handshake);
   assert(handshake->fsm);
@@ -1194,8 +1196,8 @@ static void release_handshake(void *arg)
 
 static struct ddsi_handshake * ddsi_handshake_find_locked(
     struct ddsi_hsadmin *hsadmin,
-    struct participant *pp,
-    struct proxy_participant *proxypp)
+    struct ddsi_participant *pp,
+    struct ddsi_proxy_participant *proxypp)
 {
   struct handshake_entities handles;
 
@@ -1213,7 +1215,7 @@ static void gc_delete_handshale (struct gcreq *gcreq)
   gcreq_free(gcreq);
 }
 
-void ddsi_handshake_remove(struct participant *pp, struct proxy_participant *proxypp)
+void ddsi_handshake_remove(struct ddsi_participant *pp, struct ddsi_proxy_participant *proxypp)
 {
   struct ddsi_hsadmin *hsadmin = pp->e.gv->hsadmin;
   struct ddsi_handshake *handshake = NULL;
@@ -1232,7 +1234,7 @@ void ddsi_handshake_remove(struct participant *pp, struct proxy_participant *pro
   ddsrt_mutex_unlock(&hsadmin->lock);
 }
 
-struct ddsi_handshake * ddsi_handshake_find(struct participant *pp, struct proxy_participant *proxypp)
+struct ddsi_handshake * ddsi_handshake_find(struct ddsi_participant *pp, struct ddsi_proxy_participant *proxypp)
 {
   struct ddsi_hsadmin *hsadmin = pp->e.gv->hsadmin;
   struct ddsi_handshake *handshake = NULL;
@@ -1246,7 +1248,7 @@ struct ddsi_handshake * ddsi_handshake_find(struct participant *pp, struct proxy
   return handshake;
 }
 
-void ddsi_handshake_register(struct participant *pp, struct proxy_participant *proxypp, ddsi_handshake_end_cb_t callback)
+void ddsi_handshake_register(struct ddsi_participant *pp, struct ddsi_proxy_participant *proxypp, ddsi_handshake_end_cb_t callback)
 {
   struct ddsi_hsadmin *hsadmin = pp->e.gv->hsadmin;
   struct ddsi_handshake *handshake = NULL;
@@ -1294,8 +1296,8 @@ DDS_EXPORT extern inline void ddsi_handshake_release(UNUSED_ARG(struct ddsi_hand
 DDS_EXPORT extern inline void ddsi_handshake_crypto_tokens_received(UNUSED_ARG(struct ddsi_handshake *handshake));
 DDS_EXPORT extern inline int64_t ddsi_handshake_get_shared_secret(UNUSED_ARG(const struct ddsi_handshake *handshake));
 DDS_EXPORT extern inline int64_t ddsi_handshake_get_handle(UNUSED_ARG(const struct ddsi_handshake *handshake));
-DDS_EXPORT extern inline void ddsi_handshake_register(UNUSED_ARG(struct participant *pp), UNUSED_ARG(struct proxy_participant *proxypp), UNUSED_ARG(ddsi_handshake_end_cb_t callback));
-DDS_EXPORT extern inline void ddsi_handshake_remove(UNUSED_ARG(struct participant *pp), UNUSED_ARG(struct proxy_participant *proxypp), UNUSED_ARG(struct ddsi_handshake *handshake));
-DDS_EXPORT extern inline struct ddsi_handshake * ddsi_handshake_find(UNUSED_ARG(struct participant *pp), UNUSED_ARG(struct proxy_participant *proxypp));
+DDS_EXPORT extern inline void ddsi_handshake_register(UNUSED_ARG(struct ddsi_participant *pp), UNUSED_ARG(struct ddsi_proxy_participant *proxypp), UNUSED_ARG(ddsi_handshake_end_cb_t callback));
+DDS_EXPORT extern inline void ddsi_handshake_remove(UNUSED_ARG(struct ddsi_participant *pp), UNUSED_ARG(struct ddsi_proxy_participant *proxypp), UNUSED_ARG(struct ddsi_handshake *handshake));
+DDS_EXPORT extern inline struct ddsi_handshake * ddsi_handshake_find(UNUSED_ARG(struct ddsi_participant *pp), UNUSED_ARG(struct ddsi_proxy_participant *proxypp));
 
 #endif /* DDS_HAS_DDS_SECURITY */

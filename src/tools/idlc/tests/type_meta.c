@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2021 ADLINK Technology Limited and others
+ * Copyright(c) 2021 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -223,10 +223,13 @@ static DDS_XTypes_TypeObject *get_typeobj1 (void)
     "t1::test_struct",
     DDS_XTypes_IS_APPENDABLE,
     (DDS_XTypes_TypeIdentifier) { ._d = DDS_XTypes_TK_NONE },
-    3, (smember_t[]) {
+    6, (smember_t[]) {
       { 0, DDS_XTypes_IS_KEY | DDS_XTypes_IS_MUST_UNDERSTAND | DDS_XTypes_TRY_CONSTRUCT_DISCARD, { ._d = DDS_XTypes_TK_INT64 }, "f1" },
       { 1, DDS_XTypes_IS_OPTIONAL | DDS_XTypes_TRY_CONSTRUCT_DISCARD, { ._d = DDS_XTypes_TI_STRING8_SMALL, ._u.string_sdefn.bound = 0 }, "f2" },
-      { 4, DDS_XTypes_IS_EXTERNAL | DDS_XTypes_TRY_CONSTRUCT_DISCARD, { ._d = DDS_XTypes_TK_CHAR8 }, "f3" }
+      { 4, DDS_XTypes_IS_EXTERNAL | DDS_XTypes_TRY_CONSTRUCT_DISCARD, { ._d = DDS_XTypes_TK_CHAR8 }, "f3" },
+      { 3, DDS_XTypes_TRY_CONSTRUCT_DISCARD, { ._d = DDS_XTypes_TK_CHAR8 }, "f4" },
+      { 8, DDS_XTypes_TRY_CONSTRUCT_DISCARD, { ._d = DDS_XTypes_TK_UINT32 }, "f5" },
+      { 7, DDS_XTypes_TRY_CONSTRUCT_DISCARD, { ._d = DDS_XTypes_TK_INT64 }, "f6" }
     });
 }
 
@@ -701,6 +704,55 @@ static DDS_XTypes_TypeObject *get_typeobj13 (void)
     });
 }
 
+static DDS_XTypes_TypeObject *get_typeobj14 (void)
+{
+  DDS_XTypes_TypeIdentifier ti_f1;
+
+  /* f1 type identifier */
+  {
+    DDS_XTypes_TypeIdentifier *ti_long = calloc (1, sizeof (*ti_long));
+    ti_long->_d = DDS_XTypes_TK_INT32;
+
+    DDS_XTypes_TypeIdentifier *ti_seq = calloc (1, sizeof (*ti_seq));
+    ti_seq->_d = DDS_XTypes_TI_PLAIN_SEQUENCE_SMALL;
+    ti_seq->_u.seq_sdefn = (struct DDS_XTypes_PlainSequenceSElemDefn) {
+      .header = { .equiv_kind = DDS_XTypes_EK_BOTH, .element_flags = DDS_XTypes_TRY_CONSTRUCT_DISCARD },
+      .bound = 0,
+      .element_identifier = ti_long
+    };
+
+    /* typedef sequence<long> td_seq_arr[2] */
+    uint8_t *bound_seq = calloc (1, sizeof (*bound_seq));
+    bound_seq[0] = 3;
+    DDS_XTypes_TypeObject *to_alias_seq_arr = calloc (1, sizeof (*to_alias_seq_arr));
+    to_alias_seq_arr->_d = DDS_XTypes_EK_COMPLETE;
+    to_alias_seq_arr->_u.complete = (DDS_XTypes_CompleteTypeObject) {
+      ._d = DDS_XTypes_TK_ALIAS,
+      ._u.alias_type = (DDS_XTypes_CompleteAliasType) {
+        .alias_flags = 0,
+        .header = { .detail = { .type_name = "t14::td_seq_arr" } },
+        .body = { .common = { .related_flags = 0, .related_type = (DDS_XTypes_TypeIdentifier) {
+          ._d = DDS_XTypes_TI_PLAIN_ARRAY_SMALL,
+          ._u.array_sdefn = {
+            .header = { .equiv_kind = DDS_XTypes_EK_BOTH, .element_flags = DDS_XTypes_TRY_CONSTRUCT_DISCARD },
+            .array_bound_seq = { ._maximum = 1, ._length = 1, ._buffer = bound_seq, ._release = true },
+            .element_identifier = ti_seq
+          }
+        } } }
+      }
+    };
+    get_typeid (&ti_f1, to_alias_seq_arr);
+  }
+
+  return get_typeobj_struct (
+    "t14::test_struct",
+    DDS_XTypes_IS_FINAL,
+    (DDS_XTypes_TypeIdentifier) { ._d = DDS_XTypes_TK_NONE },
+    1, (smember_t[]) {
+      { 0, DDS_XTypes_TRY_CONSTRUCT_DISCARD, ti_f1, "f1" },
+    });
+}
+
 typedef DDS_XTypes_TypeObject * (*get_typeobj_t) (void);
 
 CU_Test(idlc_type_meta, type_obj_serdes)
@@ -710,7 +762,7 @@ CU_Test(idlc_type_meta, type_obj_serdes)
     char idl[256];
     get_typeobj_t get_typeobj_fn;
   } tests[] = {
-    { "module t1 { @appendable struct test_struct { @key long long f1; @optional string f2; @external @id(4) char f3; }; };", get_typeobj1 },
+    { "module t1 { @appendable struct test_struct { @key long long f1; @optional string f2; @external @id(4) char f3; @id(3) int8 f4; @id(8) uint32 f5; @id(7) int64 f6; }; };", get_typeobj1 },
     { "module t2 { @mutable struct test_struct { @optional @external unsigned long f1, f2; }; };", get_typeobj2 },
     { "module t3 { @final union test_union switch (short) { case 1: long f1; case 2: case 3: default: @external string f2; }; };", get_typeobj3 },
     { "module t4 { @mutable @nested struct a { @id(5) long a1; }; @mutable @topic struct test_struct : a { @id(10) long f1; }; };", get_typeobj4 },
@@ -722,7 +774,8 @@ CU_Test(idlc_type_meta, type_obj_serdes)
     { "module t10 { enum en { en0, en1 }; @topic @final struct test_struct { en f1; en f2; }; };", get_typeobj10 },
     { "module t11 { @final union test_union switch (char) { case 'a': @id(99) long f1; default: @id(5) unsigned short f2; }; };", get_typeobj11 },
     { "module t12 { typedef sequence<long> td_seq; typedef td_seq td_array[2]; struct test_struct { td_array f1; }; };", get_typeobj12 },
-    { "module t13 { typedef long td_arr[3]; typedef td_arr td; @topic @final struct test_struct { td f1; }; };", get_typeobj13 }
+    { "module t13 { typedef long td_arr[3]; typedef td_arr td; @topic @final struct test_struct { td f1; }; };", get_typeobj13 },
+    { "module t14 { typedef sequence<long> td_seq_arr[3]; @final struct test_struct { td_seq_arr f1; }; };", get_typeobj14 }
   };
 
   uint32_t flags = IDL_FLAG_EXTENDED_DATA_TYPES |
@@ -804,7 +857,7 @@ typedef struct struct_annotation_test {
   m_a_t members[8];
 } s_a_t;
 
-static void test_annotation_meta_info(s_a_t test)
+static void test_annotation_meta_info(const s_a_t *test)
 {
   uint32_t flags = IDL_FLAG_EXTENDED_DATA_TYPES |
                    IDL_FLAG_ANONYMOUS_TYPES |
@@ -818,7 +871,7 @@ static void test_annotation_meta_info(s_a_t test)
   CU_ASSERT_EQUAL_FATAL (ret, IDL_RETCODE_OK);
 
   memset (&descriptor, 0, sizeof (descriptor)); /* static analyzer */
-  ret = generate_test_descriptor (pstate, test.idl, &descriptor);
+  ret = generate_test_descriptor (pstate, test->idl, &descriptor);
   CU_ASSERT_EQUAL_FATAL (ret, IDL_RETCODE_OK);
 
   ret = generate_descriptor_type_meta (pstate, descriptor.topic, &dtm);
@@ -830,8 +883,8 @@ static void test_annotation_meta_info(s_a_t test)
     DDS_XTypes_CompleteStructMemberSeq mseq = tm->to_complete->_u.complete._u.struct_type.member_seq;
     for (size_t i = 0; i < mseq._length; i++)
     {
-      //CU_ASSERT_FATAL(i < sizeof(test.members)/sizeof(test.members[0]));
-      m_a_t m = test.members[i];
+      //CU_ASSERT_FATAL(i < sizeof(test->members)/sizeof(test->members[0]));
+      m_a_t m = test->members[i];
       CU_ASSERT_PTR_NOT_NULL_FATAL(mseq._buffer);
       if (!mseq._buffer)
         continue;
@@ -930,7 +983,7 @@ CU_Test(idlc_type_meta, type_obj_annotations)
     };
 
   for (size_t i = 0; i < sizeof(tests)/sizeof(tests[0]); i++)
-    test_annotation_meta_info(tests[i]);
+    test_annotation_meta_info(tests + i);
 }
 
 

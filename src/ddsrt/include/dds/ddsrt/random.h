@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -12,6 +12,7 @@
 #ifndef DDSRT_RANDOM_H
 #define DDSRT_RANDOM_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include "dds/export.h"
@@ -38,6 +39,7 @@ DDS_EXPORT void ddsrt_prng_init_simple (ddsrt_prng_t *prng, uint32_t seed);
 DDS_EXPORT bool ddsrt_prng_makeseed (struct ddsrt_prng_seed *seed);
 DDS_EXPORT void ddsrt_prng_init (ddsrt_prng_t *prng, const struct ddsrt_prng_seed *seed);
 DDS_EXPORT uint32_t ddsrt_prng_random (ddsrt_prng_t *prng);
+DDS_EXPORT size_t ddsrt_prng_random_name(ddsrt_prng_t *prng, char* output, size_t output_size);
 
 DDS_EXPORT uint32_t ddsrt_random (void);
 

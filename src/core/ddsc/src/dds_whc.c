@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -32,7 +32,7 @@
 #include "dds/ddsi/q_rtps.h"
 #include "dds/ddsi/q_freelist.h"
 #include "dds/ddsi/ddsi_domaingv.h"
-#include "dds/ddsi/q_entity.h"
+#include "dds/ddsi/ddsi_entity.h"
 #include "dds__whc.h"
 #include "dds__entity.h"
 #include "dds__writer.h"
@@ -401,7 +401,7 @@ static ddsrt_mtime_t whc_deadline_missed_cb(void *hc, ddsrt_mtime_t tnow)
     struct whc_idxnode *idxnode = vidxnode;
     deadline_reregister_instance_locked (&whc->deadline, &idxnode->deadline, tnow);
 
-    status_cb_data_t cb_data;
+    ddsi_status_cb_data_t cb_data;
     cb_data.raw_status_id = (int) DDS_OFFERED_DEADLINE_MISSED_STATUS_ID;
     cb_data.extra = 0;
     cb_data.handle = 0;

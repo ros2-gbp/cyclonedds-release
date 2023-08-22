@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2020 ADLINK Technology Limited and others
+ * Copyright(c) 2020 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -94,7 +94,7 @@ int main (int argc, char **argv)
         printf ("------ stdin:%u ------\n", lineno);
         test_indent = indent;
         test_begin = lineno;
-        test_oneliner_init (&ctx);
+        test_oneliner_init (&ctx, NULL);
       }
 
       test_oneliner_step (&ctx, buf + idx);

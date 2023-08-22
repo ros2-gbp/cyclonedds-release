@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2020 ADLINK Technology Limited and others
+ * Copyright(c) 2020 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -28,6 +28,9 @@ extern "C" {
 
 typedef struct idlc_generator_config idlc_generator_config_t;
 struct idlc_generator_config  {
+  char *output_dir; /* path to write completed files */
+  char* base_dir; /* Path to start reconstruction of dir structure */
+
   /** Flag to indicate if xtypes type information is included in the generated types */
   bool generate_type_info;
 

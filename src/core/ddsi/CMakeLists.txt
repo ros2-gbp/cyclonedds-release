@@ -1,5 +1,5 @@
 #
-# Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+# Copyright(c) 2006 to 2022 ZettaScale Technology and others
 #
 # This program and the accompanying materials are made available under the
 # terms of the Eclipse Public License v. 2.0 which is available at
@@ -54,12 +54,18 @@ set(srcs_ddsi
   ddsi_list_genptr.c
   ddsi_wraddrset.c
   ddsi_typelib.c
+  ddsi_entity.c
+  ddsi_entity_match.c
+  ddsi_participant.c
+  ddsi_proxy_participant.c
+  ddsi_topic.c
+  ddsi_endpoint.c
+  ddsi_proxy_endpoint.c
   q_addrset.c
   q_bitset_inlines.c
   q_bswap.c
   q_ddsi_discovery.c
   q_debmon.c
-  q_entity.c
   q_gc.c
   q_init.c
   q_lat_estim.c
@@ -127,12 +133,18 @@ set(hdrs_private_ddsi
   ddsi_list_genptr.h
   ddsi_wraddrset.h
   ddsi_typelib.h
+  ddsi_entity.h
+  ddsi_entity_match.h
+  ddsi_participant.h
+  ddsi_proxy_participant.h
+  ddsi_topic.h
+  ddsi_endpoint.h
+  ddsi_proxy_endpoint.h
   q_addrset.h
   q_bitset.h
   q_bswap.h
   q_ddsi_discovery.h
   q_debmon.h
-  q_entity.h
   q_feature_check.h
   q_freelist.h
   q_gc.h
@@ -166,8 +178,8 @@ if(ENABLE_DEADLINE_MISSED)
   list(APPEND hdrs_private_ddsi ddsi_deadline.h)
 endif()
 if(ENABLE_TYPE_DISCOVERY)
-  list(APPEND srcs_ddsi ddsi_xt_typeinfo.c ddsi_xt_typelookup.c ddsi_xt_typemap.c ddsi_typelookup.c ddsi_typewrap.c)
-  list(APPEND hdrs_private_ddsi ddsi_xt_typeinfo.h ddsi_xt_typelookup.h ddsi_xt_typemap.h ddsi_typelookup.h ddsi_typewrap.h)
+  list(APPEND srcs_ddsi ddsi_xt_typeinfo.c ddsi_xt_typelookup.c ddsi_xt_typemap.c ddsi_typelookup.c ddsi_typewrap.c ddsi_typebuilder.c)
+  list(APPEND hdrs_private_ddsi ddsi_xt_typeinfo.h ddsi_xt_typelookup.h ddsi_xt_typemap.h ddsi_typelookup.h ddsi_typewrap.h ddsi_typebuilder.h)
 endif()
 if(ENABLE_SECURITY)
   list(APPEND srcs_ddsi ddsi_security_msg.c ddsi_security_exchange.c)

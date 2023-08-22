@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -239,6 +239,7 @@ typedef struct dds_data_representation_qospolicy {
   dds_data_representation_id_seq_t value;
 } dds_data_representation_qospolicy_t;
 
+
 /***/
 
 /* Qos Present bit indices */
@@ -274,6 +275,8 @@ typedef struct dds_data_representation_qospolicy {
 #define QP_TYPE_INFORMATION                  ((uint64_t)1 << 33)
 #define QP_LOCATOR_MASK                      ((uint64_t)1 << 34)
 #define QP_DATA_REPRESENTATION               ((uint64_t)1 << 35)
+#define QP_ENTITY_NAME                       ((uint64_t)1 << 36)
+
 
 /* Partition QoS is not RxO according to the specification (DDS 1.2,
    section 7.1.3), but communication will not take place unless it
@@ -297,6 +300,7 @@ struct dds_qos {
   /*      Extras: */
   /* xx */char *topic_name;
   /* xx */char *type_name;
+  /* xx */char *entity_name;
 #ifdef DDS_HAS_TYPE_DISCOVERY
   /* xx */struct ddsi_typeinfo *type_information;
 #endif
@@ -483,6 +487,18 @@ DDS_EXPORT void ddsi_xqos_log (uint32_t cat, const struct ddsrt_log_cfg *logcfg,
  * @returns number of bytes written to buf, excluding a terminating 0.
  */
 DDS_EXPORT size_t ddsi_xqos_print (char * __restrict buf, size_t bufsize, const dds_qos_t *xqos);
+
+/**
+ * @brief Add a property 'name' to the properties of "xqos" if it does not exists
+ *
+ * @param[in]  xqos        qos object to add property to.
+ * @param[in]  propagate   whether to propagate (emit to wire) the property
+ * @param[in]  name        property name
+ * @param[in]  value       property value
+ *
+ * @returns true iff xqos was modified (property did not exist yet)
+ */
+DDS_EXPORT bool ddsi_xqos_add_property_if_unset (dds_qos_t *xqos, bool propagate, const char *name, const char *value);
 
 /**
  * @brief Duplicate "src"

@@ -1,6 +1,5 @@
 /*
- * Copyright(c) 2022 ZettaScale Technology and others
- * Copyright(c) 2021 ADLINK Technology Limited and others
+ * Copyright(c) 2021 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -256,7 +255,8 @@ idl_log(
   if (cnt == -1)
     return;
 
-  off = (size_t)cnt;
+  off = ((size_t)cnt > sizeof(buf)) ? sizeof(buf) : (size_t)cnt;
+  // coverity[overrun-local:FALSE]
   cnt = vsnprintf(buf+off, sizeof(buf)-off, fmt, ap);
 
   if (cnt == -1)

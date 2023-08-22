@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2021 ADLINK Technology Limited and others
+ * Copyright(c) 2021 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -77,6 +77,7 @@ struct idl_pstate;
 #define IDL_FIND_IGNORE_CASE (1u<<0)
 #define IDL_FIND_IGNORE_IMPORTS (1u<<1)
 #define IDL_FIND_ANNOTATION (1u<<2)
+#define IDL_FIND_SCOPE_DECLARATION (1u<<3)
 
 IDL_EXPORT const idl_declaration_t *
 idl_find(

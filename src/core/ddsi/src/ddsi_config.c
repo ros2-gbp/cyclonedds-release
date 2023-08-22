@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -20,6 +20,7 @@
 
 #include "dds/ddsrt/heap.h"
 #include "dds/ddsrt/log.h"
+#include "dds/ddsrt/md5.h"
 #include "dds/ddsrt/string.h"
 #include "dds/ddsrt/strtod.h"
 #include "dds/ddsrt/misc.h"
@@ -175,6 +176,8 @@ DUPF(standards_conformance);
 DUPF(besmode);
 DUPF(retransmit_merging);
 DUPF(sched_class);
+DUPF(random_seed);
+DUPF(entity_naming_mode);
 DUPF(maybe_memsize);
 DUPF(maybe_int32);
 #ifdef DDS_HAS_BANDWIDTH_LIMITING
@@ -689,7 +692,6 @@ static int if_network_interfaces(struct cfgst *cfgst, void *parent, struct cfgel
   struct ddsi_config_network_interface_listelem *new = if_common (cfgst, parent, cfgelem, sizeof(*new));
   if (new == NULL)
     return -1;
-  new->cfg.automatic = false;
   new->cfg.name = NULL;
   new->cfg.address = NULL;
   return 0;
@@ -702,7 +704,7 @@ static int if_channel(struct cfgst *cfgst, void *parent, struct cfgelem const * 
   if (new == NULL)
     return -1;
   new->name = NULL;
-  new->channel_reader_ts = NULL;
+  new->channel_reader_thrst = NULL;
   new->dqueue = NULL;
   new->queueId = 0;
   new->evq = NULL;
@@ -989,6 +991,10 @@ static const char *en_standards_conformance_vs[] = { "pedantic", "strict", "lax"
 static const enum ddsi_standards_conformance en_standards_conformance_ms[] = { DDSI_SC_PEDANTIC, DDSI_SC_STRICT, DDSI_SC_LAX, 0 };
 GENERIC_ENUM_CTYPE (standards_conformance, enum ddsi_standards_conformance)
 
+static const char *en_entity_naming_mode_vs[] = { "empty", "fancy", NULL };
+static const enum ddsi_config_entity_naming_mode en_entity_naming_mode_ms[] = { DDSI_ENTITY_NAMING_DEFAULT_EMPTY, DDSI_ENTITY_NAMING_DEFAULT_FANCY, 0 };
+GENERIC_ENUM_CTYPE (entity_naming_mode, enum ddsi_config_entity_naming_mode)
+
 #ifdef DDS_HAS_SHM
 static const char *en_shm_loglevel_vs[] = { "off", "fatal", "error", "warn", "info", "debug", "verbose", NULL };
 static const enum ddsi_shm_loglevel en_shm_loglevel_ms[] = { DDSI_SHM_OFF, DDSI_SHM_FATAL, DDSI_SHM_ERROR, DDSI_SHM_WARN, DDSI_SHM_INFO, DDSI_SHM_DEBUG, DDSI_SHM_VERBOSE, 0 };
@@ -1175,6 +1181,30 @@ static enum update_result uf_tracingOutputFileName (struct cfgst *cfgst, UNUSED_
   struct ddsi_config * const cfg = cfgst->cfg;
   cfg->tracefile = ddsrt_strdup (value);
   return URES_SUCCESS;
+}
+
+static enum update_result uf_random_seed (struct cfgst *cfgst, void *parent, struct cfgelem const * const cfgelem, UNUSED_ARG (int first), const char *value)
+{
+  ddsrt_prng_seed_t * const elem = cfg_address(cfgst, parent, cfgelem);
+  if (strcmp(value, "") == 0) {
+    ddsrt_prng_makeseed(elem);
+  } else {
+    ddsrt_md5_byte_t buf[16];
+    ddsrt_md5_state_t md5st;
+    ddsrt_md5_init (&md5st);
+    ddsrt_md5_append (&md5st, (ddsrt_md5_byte_t *) value, (unsigned int) strlen(value));
+    ddsrt_md5_finish (&md5st, buf);
+    memcpy((ddsrt_md5_byte_t*)elem, buf, 16);
+    memcpy(((ddsrt_md5_byte_t*)elem) + 16, buf, 16);
+  }
+  return URES_SUCCESS;
+}
+
+static void pf_random_seed (struct cfgst *cfgst, void *parent, struct cfgelem const * const cfgelem, uint32_t sources)
+{
+  ddsrt_prng_seed_t * const seed = cfg_address (cfgst, parent, cfgelem);
+  cfg_logelem (cfgst, sources, "%"PRIu32" %"PRIu32" %"PRIu32" %"PRIu32" %"PRIu32" %"PRIu32" %"PRIu32" %"PRIu32"",
+               seed->key[0], seed->key[1], seed->key[2], seed->key[3], seed->key[4], seed->key[5], seed->key[6], seed->key[7]);
 }
 
 static enum update_result uf_ipv4 (struct cfgst *cfgst, void *parent, struct cfgelem const * const cfgelem, int first, const char *value)
@@ -2135,7 +2165,7 @@ static int set_default_channel (struct config *cfg)
     c->auxiliary_bandwidth_limit = 0;
 #endif
     c->diffserv_field = 0;
-    c->channel_reader_ts = NULL;
+    c->channel_reader_thrst = NULL;
     c->queueId = 0;
     c->dqueue = NULL;
     c->evq = NULL;
@@ -2319,6 +2349,7 @@ static struct ddsi_config_network_interface * network_interface_find_or_append(s
   iface->cfg.name = name ? ddsrt_strdup(name) : NULL;
   iface->cfg.address = address ? ddsrt_strdup(address) : NULL;
   iface->cfg.prefer_multicast = false;
+  iface->cfg.presence_required = true;
   iface->cfg.priority.isdefault = 1;
   iface->cfg.multicast = DDSI_BOOLDEF_DEFAULT;
 
@@ -2414,8 +2445,14 @@ static int convert_assumemulticastcapable (struct ddsi_config * const cfg)
     }
     size_t addr_count;
     char ** names = split_at_comma(cfg->depr_assumeMulticastCapable, &addr_count);
-    for (size_t i = 0; i < addr_count; ++i) {
+    for (size_t i = 0; i < addr_count; ++i)
+    {
       struct ddsi_config_network_interface *iface_cfg = network_interface_find_or_append(cfg, true, names[i], NULL);
+      if (!iface_cfg)
+      {
+        ddsrt_free (names);
+        return 0;
+      }
       iface_cfg->multicast = DDSI_BOOLDEF_TRUE;
     }
     ddsrt_free (names);

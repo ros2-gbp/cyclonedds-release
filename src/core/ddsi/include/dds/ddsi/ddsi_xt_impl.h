@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2021 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -103,15 +103,11 @@ struct xt_map {
 
 struct xt_alias {
   struct ddsi_type *related_type;
+  DDS_XTypes_AliasTypeFlag flags;
   DDS_XTypes_AliasMemberFlag related_flags;
   struct xt_type_detail detail;
 };
 
-struct xt_annotation_member {
-  DDS_XTypes_MemberName name;
-  struct ddsi_type *member_type;
-  struct DDS_XTypes_AnnotationParameterValue default_value;
-};
 struct xt_annotation_parameter {
   struct ddsi_type *member_type;
   DDS_XTypes_AnnotationParameterFlag flags;
@@ -177,6 +173,7 @@ struct xt_bitfield_seq {
   struct xt_bitfield *seq;
 };
 struct xt_bitset {
+  DDS_XTypes_BitsetTypeFlag flags;
   struct xt_bitfield_seq fields;
   struct xt_type_detail detail;
 };
@@ -191,7 +188,7 @@ struct xt_enum_literal_seq {
   struct xt_enum_literal *seq;
 };
 struct xt_enum {
-  DDS_XTypes_EnumTypeFlag flags;  // spec says unused, but this flag is actually used for extensibility
+  DDS_XTypes_EnumTypeFlag flags;
   DDS_XTypes_BitBound bit_bound;
   struct xt_enum_literal_seq literals;
   struct xt_type_detail detail;
@@ -207,7 +204,7 @@ struct xt_bitflag_seq {
   struct xt_bitflag *seq;
 };
 struct xt_bitmask {
-  DDS_XTypes_BitmaskTypeFlag flags;  // spec says unused, but this flag is actually used for extensibility
+  DDS_XTypes_BitmaskTypeFlag flags;
   DDS_XTypes_BitBound bit_bound;
   struct xt_bitflag_seq bitflags;
   struct xt_type_detail detail;
@@ -217,8 +214,6 @@ struct xt_type
 {
   ddsi_typeid_t id;
   ddsi_typeid_kind_t kind;
-  unsigned is_plain_collection : 1;
-  unsigned has_obj : 1;
   struct DDS_XTypes_StronglyConnectedComponentId sc_component_id;
 
   uint8_t _d;
@@ -270,19 +265,20 @@ struct xt_type
 DDSRT_STATIC_ASSERT (offsetof (struct xt_type, id) == 0);
 
 struct ddsi_type_dep {
-  struct ddsi_type *type;
-  struct ddsi_type_dep *prev;
+  ddsrt_avl_node_t src_avl_node;
+  ddsrt_avl_node_t dep_avl_node;
+  ddsi_typeid_t src_type_id;    // type that has the dependency on dep_type_id
+  ddsi_typeid_t dep_type_id;    // dependent type, a direct or indirect dependency of src_type_id
+  bool from_type_info;          // entry was added based on a dependent type in the type-info, requires unref of the dependent type on deletion
 };
 
 struct ddsi_type {
   struct xt_type xt;                            /* wrapper for XTypes type id/obj */
   ddsrt_avl_node_t avl_node;
   enum ddsi_type_state state;
-  const struct ddsi_sertype *sertype;           /* sertype associated with the type identifier, NULL if type is unresolved or not used as a top-level type */
   seqno_t request_seqno;                        /* sequence number of the last type lookup request message */
   struct ddsi_type_proxy_guid_list proxy_guids; /* administration for proxy endpoints (not proxy topics) that are using this type */
   uint32_t refc;                                /* refcount for this record */
-  struct ddsi_type_dep *deps;                   /* dependent type records */
 };
 
 /* The xt_type member must be at offset 0 so that the type identifier field
@@ -301,8 +297,9 @@ DDS_EXPORT ddsi_typeid_t * ddsi_typeid_dup_from_impl (const struct DDS_XTypes_Ty
 DDS_EXPORT bool ddsi_typeid_is_none_impl (const struct DDS_XTypes_TypeIdentifier *type_id);
 
 DDS_EXPORT void ddsi_xt_get_typeobject_impl (const struct xt_type *xt, struct DDS_XTypes_TypeObject *to);
-DDS_EXPORT struct ddsi_type * ddsi_type_ref_id_locked_impl (struct ddsi_domaingv *gv, const struct DDS_XTypes_TypeIdentifier *type_id);
+DDS_EXPORT dds_return_t ddsi_type_ref_id_locked_impl (struct ddsi_domaingv *gv, struct ddsi_type **type, const struct DDS_XTypes_TypeIdentifier *type_id);
 DDS_EXPORT struct ddsi_type * ddsi_type_lookup_locked_impl (struct ddsi_domaingv *gv, const struct DDS_XTypes_TypeIdentifier *type_id);
+DDS_EXPORT const struct DDS_XTypes_TypeObject * ddsi_typemap_typeobj (const ddsi_typemap_t *tmap, const struct DDS_XTypes_TypeIdentifier *type_id);
 
 DDS_EXPORT bool ddsi_typeid_is_hash_impl (const struct DDS_XTypes_TypeIdentifier *type_id);
 DDS_EXPORT bool ddsi_typeid_is_minimal_impl (const struct DDS_XTypes_TypeIdentifier *type_id);

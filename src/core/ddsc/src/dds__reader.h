@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2021 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -19,9 +19,9 @@
 extern "C" {
 #endif
 
-struct status_cb_data;
+struct ddsi_status_cb_data;
 
-void dds_reader_status_cb (void *entity, const struct status_cb_data * data);
+void dds_reader_status_cb (void *entity, const struct ddsi_status_cb_data * data);
 
 dds_return_t dds_return_reader_loan (dds_reader *rd, void **buf, int32_t bufsz);
 

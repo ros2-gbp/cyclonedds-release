@@ -102,20 +102,6 @@ CycloneDDS configuration""" ] ]
 <p>This element statically configures addresses for discovery.</p>""" ] ]
         element Peers {
           [ a:documentation [ xml:lang="en" """
-<p>This element statically configures a fault tolerant group of addresses for discovery. Each member of the group is tried in sequence until one succeeds.</p>""" ] ]
-          element Group {
-            [ a:documentation [ xml:lang="en" """
-<p>This element statically configures an addresses for discovery.</p>""" ] ]
-            element Peer {
-              [ a:documentation [ xml:lang="en" """
-<p>This element specifies an IP address to which discovery packets must be sent, in addition to the default multicast address (see also General/AllowMulticast). Both a hostnames and a numerical IP address is accepted; the hostname or IP address may be suffixed with :PORT to explicitly set the port to which it must be sent. Multiple Peers may be specified.</p>
-<p>The default value is: "".</p>""" ] ]
-              attribute Address {
-                text
-              }
-            }*
-          }*
-          & [ a:documentation [ xml:lang="en" """
 <p>This element statically configures an addresses for discovery.</p>""" ] ]
           element Peer {
             [ a:documentation [ xml:lang="en" """
@@ -222,6 +208,18 @@ CycloneDDS configuration""" ] ]
           xsd:boolean
         }?
         & [ a:documentation [ xml:lang="en" """
+<p>This element specifies the entity autonaming mode. By default set to 'empty' which means no name will be set (but you can still use dds_qset_entity_name). When set to 'fancy' participants, publishers, subscribers, writers and readers will get randomly generated names. An autonamed entity will share a 3-letter prefix with their parent entity.</p>
+<p>The default value is: "empty".</p>""" ] ]
+        element EntityAutoNaming {
+          [ a:documentation [ xml:lang="en" """
+<p>Provide an initial seed for the entity naming. Your string will be hashed to provided the random state. When provided the same sequence of names is generated every run. If you create your entities in the same order this will ensure they are the same between runs. If you run multiple nodes set this via environment variable to ensure every node generates unique names. When left empty (the default) a random starting seed is chosen.</p>
+<p>The default value is: "".</p>""" ] ]
+          attribute seed {
+            text
+          }?
+          & ("empty"|"fancy")
+        }?
+        & [ a:documentation [ xml:lang="en" """
 <p>This element allows explicitly overruling the network address Cyclone DDS advertises in the discovery protocol, which by default is the address of the preferred network interface (General/NetworkInterfaceAddress), to allow Cyclone DDS to communicate across a Network Address Translation (NAT) device.</p>
 <p>The default value is: "auto".</p>""" ] ]
         element ExternalNetworkAddress {
@@ -274,6 +272,12 @@ CycloneDDS configuration""" ] ]
 <p>When false (default) Cyclone DDS uses unicast for data whenever there a single unicast suffices. Setting this to true makes it prefer multicasting data, falling back to unicast only when no multicast is available.</p>
 <p>The default value is: "false".</p>""" ] ]
             attribute prefer_multicast {
+              xsd:boolean
+            }?
+            & [ a:documentation [ xml:lang="en" """
+<p>By default all specified network interfaces must be present, if they are missing Cyclone will refuse to start. By explicitly setting this setting for an interface you can instruct Cyclone to simply ignore that interface if it is not present.</p>
+<p>The default value is: "true".</p>""" ] ]
+            attribute presence_required {
               xsd:boolean
             }?
             & [ a:documentation [ xml:lang="en" """
@@ -358,7 +362,7 @@ CycloneDDS configuration""" ] ]
         & [ a:documentation [ xml:lang="en" """
 <p>This setting controls the interval with which a reader will continue NACK'ing missing samples in the absence of a response from the writer, as a protection mechanism against writers incorrectly stopping the sending of HEARTBEAT messages.</p>
 <p>Valid values are finite durations with an explicit unit or the keyword 'inf' for infinity. Recognised units: ns, us, ms, s, min, hr, day.</p>
-<p>The default value is: "1 s".</p>""" ] ]
+<p>The default value is: "3 s".</p>""" ] ]
         element AutoReschedNackDelay {
           duration_inf
         }?
@@ -1290,13 +1294,13 @@ MIIEpAIBAAKCAQEA3HIh...AOBaaqSV37XBUJg==<br>
   duration_inf = xsd:token { pattern = "inf|0|(\d+(\.\d*)?([Ee][\-+]?\d+)?|\.\d+([Ee][\-+]?\d+)?) *([num]?s|min|hr|day)" }
   memsize = xsd:token { pattern = "0|(\d+(\.\d*)?([Ee][\-+]?\d+)?|\.\d+([Ee][\-+]?\d+)?) *([kMG]i?)?B" }
 }
-# generated from ddsi_config.h[65e4d0ff87910896249e76fb2e80d209874d4f7d] 
-# generated from ddsi_cfgunits.h[1e595223d52f30511d2b844a979277227d15fd3e] 
-# generated from ddsi_cfgelems.h[1b576c58b8e860d90bb52a8f134dd0d4c4717ce8] 
-# generated from ddsi_config.c[cfa9bdfba7ced22441d4139e93049ca8ac705da4] 
-# generated from _confgen.h[4c987ae42ea0d7e691a88609b30aaf756260a8c4] 
-# generated from _confgen.c[d1f3a36646cebdcbe4788725beebad9f5ee90f94] 
-# generated from generate_rnc.c[9785c4c557a472db1c1685daa2b82c39202ed17a] 
-# generated from generate_md.c[c3f3a8c63374bad4dbfb792e3509d4a5ab0d03fd] 
-# generated from generate_xsd.c[47ff306dce0c19d2c18704ce674642f62cccf40f] 
-# generated from generate_defconfig.c[a92ac1bffb20880e2efbc215e17b1c8c32f4ee5e] 
+# generated from ddsi_config.h[87da706bc9c463a87326e87b311d8291d5761d43] 
+# generated from ddsi_cfgunits.h[fc550f1620aa20dcd9244ef4e24299d5001efbb4] 
+# generated from ddsi_cfgelems.h[c54fbee60d780fadc6ebc3c738c5d2c5051e689a] 
+# generated from ddsi_config.c[98486715ac072b7b3cc3a449d55676be1218c98c] 
+# generated from _confgen.h[01ffa8a2e53b2309451756861466551cfe28c8ce] 
+# generated from _confgen.c[13cd40932d695abae1470202a42c18dc4d09ea84] 
+# generated from generate_rnc.c[a2ec6e48d33ac14a320c8ec3f320028a737920e0] 
+# generated from generate_md.c[a61b6a9649d18afeca4c73b5784f36989d7994e0] 
+# generated from generate_xsd.c[45064e8869b3c00573057d7c8f02d20f04b40e16] 
+# generated from generate_defconfig.c[eec9ab7b2d053e68500799b693d089e84153a37b] 

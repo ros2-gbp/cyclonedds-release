@@ -1738,15 +1738,17 @@ not_comment:
             /* Fall through */
         case '\t':                          /* Horizontal space     */
         case ' ':
+#if COMPILER != IDLC
             assert( tp > temp);    /* Loop executed at least 1 time */
+#endif
             if (keep_spaces) {
                 if (c == '\t')
                     *tp++ = '\t';
                 else
                     *tp++ = ' ';            /* Convert to ' '       */
-            } else if (! (char_type[ *(tp - 1) & UCHARMAX] & HSP)) {
+            } else if (tp > temp && ! (char_type[ *(tp - 1) & UCHARMAX] & HSP)) {
                 *tp++ = ' ';                /* Squeeze white spaces */
-            } else if (mcpp_mode == OLD_PREP && *(tp - 1) == COM_SEP) {
+            } else if (tp > temp && mcpp_mode == OLD_PREP && *(tp - 1) == COM_SEP) {
                 *(tp - 1) = ' ';    /* Replace COM_SEP with ' '     */
             }
             break;
@@ -1957,7 +1959,7 @@ static char *   get_line(
                 cfatal( "Too long logical line"             /* _F_  */
                         , NULL, 0L, NULL);
         }
-        if (*(ptr + len - 1) != '\n')   /* Unterminated source line */
+        if (len == 0 || *(ptr + len - 1) != '\n')   /* Unterminated source line */
             break;
         if (len >= 2 && *(ptr + len - 2) == '\r') {         /* [CR+LF]      */
             *(ptr + len - 2) = '\n';
@@ -2491,6 +2493,10 @@ static void do_msg(
                     sp += 2;            /* Skip two more bytes      */
                 break;
             case MAC_INF:
+#if COMPILER == IDLC
+                *tp++ = ' ';
+                /* Illegal control character, convert to a space*/
+#else
                 if (mcpp_mode != STD) {
                     *tp++ = ' ';
                     /* Illegal control character, convert to a space*/
@@ -2514,6 +2520,7 @@ static void do_msg(
                         break;
                     }
                 }
+#endif
                 break;
             case '\n':
                 *tp++ = ' ';            /* Convert '\n' to a space  */
