@@ -1,5 +1,5 @@
 #
-# Copyright(c) 2006 to 2021 ADLINK Technology Limited and others
+# Copyright(c) 2006 to 2022 ZettaScale Technology and others
 #
 # This program and the accompanying materials are made available under the
 # terms of the Eclipse Public License v. 2.0 which is available at
@@ -31,6 +31,7 @@ set(_sources
   test_bool.idl
   test_bitmask.idl
   test_struct_keys.idl
+  test_struct_inherit_mutable_keys.idl
 )
 
 set(_includes "${_includes}\\;${CMAKE_SOURCE_DIR}/src/core/ddsc/include")

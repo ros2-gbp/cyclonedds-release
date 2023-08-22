@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2019 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2021 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -333,6 +333,7 @@ static bool read_submsg_header (tainted_input_buffer_t *input, uint8_t smid, Sub
 
   // silly C can't deal with assignment to *submsg_view in any way because of endp
   // memcpy to the rescue!
+  // coverity[store_writes_const_field]
   memcpy (submsg_view, &(tainted_input_buffer_t){ .ptr = input->ptr, .endp = input->ptr + hdr->octetsToNextHeader }, sizeof (*submsg_view));
   input->ptr += hdr->octetsToNextHeader;
   return true;

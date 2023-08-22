@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2021 ADLINK Technology Limited and others
+ * Copyright(c) 2021 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -15,6 +15,9 @@
 #include "idl/export.h"
 #include "idl/retcode.h"
 
+#define IDL_GEN_OUTFILE(path, output_dir, base_dir, out_ext, out_ptr) \
+  idl_generate_out_file(path, output_dir, base_dir, out_est, out_ptr, false)
+
 IDL_EXPORT unsigned int
 idl_isseparator(int chr);
 
@@ -29,5 +32,11 @@ idl_normalize_path(const char *path, char **abspathp);
 
 IDL_EXPORT idl_retcode_t
 idl_relative_path(const char *base, const char *path, char **relpathp);
+
+IDL_EXPORT idl_retcode_t
+idl_mkpath(const char *path);
+
+IDL_EXPORT idl_retcode_t
+idl_generate_out_file(const char *path, const char *output_dir, const char *base_dir, const char *out_ext, char ** out_ptr, int skip_mkpath);
 
 #endif /* IDL_FILE_H */

@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -18,7 +18,8 @@
 #include "dds/ddsi/q_unused.h"
 #include "dds/ddsi/ddsi_config_impl.h"
 #include "dds/ddsi/ddsi_entity_index.h"
-#include "dds/ddsi/q_entity.h"
+#include "dds/ddsi/ddsi_entity.h"
+#include "dds/ddsi/ddsi_proxy_participant.h"
 #include "dds/ddsi/ddsi_domaingv.h"
 #include "dds/ddsi/ddsi_tkmap.h"
 #include "dds__serdata_builtintopic.h"
@@ -44,8 +45,8 @@ struct bwhc_iter {
   bool have_sample;
   struct entidx_enum it;
 #ifdef DDS_HAS_TOPIC_DISCOVERY
-  struct proxy_participant *cur_proxypp;
-  proxy_topic_list_iter_t proxytp_it;
+  struct ddsi_proxy_participant *cur_proxypp;
+  ddsi_entityid_t proxytp_eid;
 #endif
 };
 
@@ -65,16 +66,16 @@ static void bwhc_sample_iter_init (const struct whc *whc_generic, struct whc_sam
   it->have_sample = false;
 }
 
-static bool is_visible (const struct entity_common *e)
+static bool is_visible (const struct ddsi_entity_common *e)
 {
-  const nn_vendorid_t vendorid = get_entity_vendorid (e);
+  const nn_vendorid_t vendorid = ddsi_get_entity_vendorid (e);
   return builtintopic_is_visible (e->gv->builtin_topic_interface, &e->guid, vendorid);
 }
 
 static bool bwhc_sample_iter_borrow_next_proxy_topic (struct bwhc_iter * const it, struct whc_borrowed_sample *sample)
 {
 #ifdef DDS_HAS_TOPIC_DISCOVERY
-  struct proxy_topic *proxytp = NULL;
+  struct ddsi_proxy_topic *proxytp = NULL;
 
   /* If not first proxypp: get lock and get next topic from this proxypp */
   if (it->cur_proxypp != NULL)
@@ -82,7 +83,9 @@ static bool bwhc_sample_iter_borrow_next_proxy_topic (struct bwhc_iter * const i
     ddsrt_mutex_lock (&it->cur_proxypp->e.lock);
     do
     {
-      proxytp = proxy_topic_list_iter_next (&it->proxytp_it);
+      proxytp = ddsrt_avl_lookup_succ (&ddsi_proxypp_proxytp_treedef, &it->cur_proxypp->topics, &it->proxytp_eid);
+      if (proxytp != NULL)
+        it->proxytp_eid = proxytp->entityid;
     } while (proxytp != NULL && proxytp->deleted);
   }
   while (proxytp == NULL)
@@ -92,14 +95,17 @@ static bool bwhc_sample_iter_borrow_next_proxy_topic (struct bwhc_iter * const i
       ddsrt_mutex_unlock (&it->cur_proxypp->e.lock);
 
     /* enum next proxypp (if available) and get lock */
-    if ((it->cur_proxypp = (struct proxy_participant *) entidx_enum_next (&it->it)) == NULL)
+    if ((it->cur_proxypp = (struct ddsi_proxy_participant *) entidx_enum_next (&it->it)) == NULL)
       return false;
     ddsrt_mutex_lock (&it->cur_proxypp->e.lock);
 
     /* get first (non-deleted) topic for this proxypp */
-    proxytp = proxy_topic_list_iter_first (&it->cur_proxypp->topics, &it->proxytp_it);
+    ddsi_entityid_t eid = { .u = 0 };
+    proxytp = ddsrt_avl_lookup_succ (&ddsi_proxypp_proxytp_treedef, &it->cur_proxypp->topics, &eid);
     while (proxytp != NULL && proxytp->deleted)
-      proxytp = proxy_topic_list_iter_next (&it->proxytp_it);
+      proxytp = ddsrt_avl_lookup_succ (&ddsi_proxypp_proxytp_treedef, &it->cur_proxypp->topics, &proxytp->entityid);
+    if (proxytp != NULL)
+      it->proxytp_eid = proxytp->entityid;
   }
   /* next topic found, make sample and release proxypp lock */
   sample->serdata = dds__builtin_make_sample_proxy_topic (proxytp, proxytp->tupdate, true);
@@ -118,16 +124,16 @@ static void init_proxy_topic_iteration (struct bwhc_iter * const it)
   /* proxy topics are not stored in entity index as these are not real
      entities. For proxy topics loop over all proxy participants and
      iterate all proxy topics for each proxy participant*/
-  entidx_enum_init (&it->it, whc->entidx, EK_PROXY_PARTICIPANT);
+  entidx_enum_init (&it->it, whc->entidx, DDSI_EK_PROXY_PARTICIPANT);
   it->cur_proxypp = NULL;
 #else
   (void) it;
 #endif
 }
 
-static struct ddsi_serdata *make_sample (struct entity_common *entity)
+static struct ddsi_serdata *make_sample (struct ddsi_entity_common *entity)
 {
-  if (entity->kind == EK_TOPIC)
+  if (entity->kind == DDSI_EK_TOPIC)
   {
 #ifdef DDS_HAS_TOPIC_DISCOVERY
     return dds__builtin_make_sample_topic (entity, entity->tupdate, true);
@@ -146,8 +152,8 @@ static bool bwhc_sample_iter_borrow_next (struct whc_sample_iter *opaque_it, str
 {
   struct bwhc_iter * const it = (struct bwhc_iter *) opaque_it;
   struct bwhc * const whc = (struct bwhc *) it->c.whc;
-  enum entity_kind kind = EK_PARTICIPANT; /* pacify gcc */
-  struct entity_common *entity = NULL;
+  enum ddsi_entity_kind kind = DDSI_EK_PARTICIPANT; /* pacify gcc */
+  struct ddsi_entity_common *entity = NULL;
 
   if (it->have_sample)
   {
@@ -162,12 +168,12 @@ static bool bwhc_sample_iter_borrow_next (struct whc_sample_iter *opaque_it, str
   {
     case BIS_INIT_LOCAL:
       switch (whc->entity_kind) {
-        case DSBT_PARTICIPANT: kind = EK_PARTICIPANT; break;
-        case DSBT_TOPIC:       kind = EK_TOPIC; break;
-        case DSBT_WRITER:      kind = EK_WRITER; break;
-        case DSBT_READER:      kind = EK_READER; break;
+        case DSBT_PARTICIPANT: kind = DDSI_EK_PARTICIPANT; break;
+        case DSBT_TOPIC:       kind = DDSI_EK_TOPIC; break;
+        case DSBT_WRITER:      kind = DDSI_EK_WRITER; break;
+        case DSBT_READER:      kind = DDSI_EK_READER; break;
       }
-      assert (whc->entity_kind == DSBT_PARTICIPANT || kind != EK_PARTICIPANT);
+      assert (whc->entity_kind == DSBT_PARTICIPANT || kind != DDSI_EK_PARTICIPANT);
       entidx_enum_init (&it->it, whc->entidx, kind);
       it->st = BIS_LOCAL;
       /* FALLS THROUGH */
@@ -191,12 +197,12 @@ static bool bwhc_sample_iter_borrow_next (struct whc_sample_iter *opaque_it, str
       {
         switch (whc->entity_kind)
         {
-          case DSBT_PARTICIPANT: kind = EK_PROXY_PARTICIPANT; break;
+          case DSBT_PARTICIPANT: kind = DDSI_EK_PROXY_PARTICIPANT; break;
           case DSBT_TOPIC:       assert (0); break;
-          case DSBT_WRITER:      kind = EK_PROXY_WRITER; break;
-          case DSBT_READER:      kind = EK_PROXY_READER; break;
+          case DSBT_WRITER:      kind = DDSI_EK_PROXY_WRITER; break;
+          case DSBT_READER:      kind = DDSI_EK_PROXY_READER; break;
         }
-        assert (kind != EK_PARTICIPANT);
+        assert (kind != DDSI_EK_PARTICIPANT);
         entidx_enum_init (&it->it, whc->entidx, kind);
       }
 

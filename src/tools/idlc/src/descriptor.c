@@ -1,6 +1,5 @@
 /*
- * Copyright(c) 2022 ZettaScale Technology and others
- * Copyright(c) 2021 ADLINK Technology Limited and others
+ * Copyright(c) 2021 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -38,35 +37,6 @@
 #define XCDR2_MAX_ALIGN 4
 
 static const uint16_t nop = UINT16_MAX;
-
-struct alignment {
-  int value;
-  int ordering;
-  const char *rendering;
-};
-
-static const struct alignment alignments[] = {
-#define ALIGNMENT_1BY (&alignments[0])
-  { 1, 0, "1u" },
-#define ALIGNMENT_2BY (&alignments[1])
-  { 2, 2, "2u" },
-#define ALIGNMENT_4BY (&alignments[2])
-  { 4, 4, "4u" },
-#define ALIGNMENT_PTR (&alignments[3])
-  { 0, 6, "sizeof (char *)" },
-#define ALIGNMENT_8BY (&alignments[4])
-  { 8, 8, "8u" }
-};
-
-static const struct alignment *
-max_alignment(const struct alignment *a, const struct alignment *b)
-{
-  if (!a)
-    return b;
-  if (!b)
-    return a;
-  return b->ordering > a->ordering ? b : a;
-}
 
 static idl_retcode_t push_field(
   struct descriptor *descriptor, const void *node, struct field **fieldp)
@@ -177,88 +147,17 @@ stash_opcode(
 {
   enum dds_stream_typecode typecode;
   struct instruction inst = { OPCODE, { .opcode = { .code = code, .order = order } } };
-  const struct alignment *alignment = NULL;
-
-  if (code & DDS_OP_FLAG_EXT) {
-    descriptor->flags |= DDS_TOPIC_NO_OPTIMIZE;
-    descriptor->alignment = max_alignment(descriptor->alignment, ALIGNMENT_PTR);
-  }
 
   descriptor->n_opcodes++;
-  switch (DDS_OP(code)) {
-    case DDS_OP_ADR:
-    case DDS_OP_JEQ4:
-      typecode = DDS_OP_TYPE(code);
-      if (typecode == DDS_OP_VAL_ARR)
-        typecode = DDS_OP_SUBTYPE(code);
-      break;
-    case DDS_OP_JEQ:
-      assert (0); // deprecated
-      return IDL_RETCODE_BAD_PARAMETER;
-    default:
-      return stash_instruction(pstate, instructions, index, &inst);
+  if (DDS_OP (code) == DDS_OP_ADR || DDS_OP (code) == DDS_OP_JEQ4)
+  {
+    typecode = DDS_OP_TYPE (code);
+    if (typecode == DDS_OP_VAL_ARR)
+      typecode = DDS_OP_SUBTYPE (code);
+    if (typecode == DDS_OP_VAL_UNI)
+      descriptor->flags |= DDS_TOPIC_CONTAINS_UNION;
   }
 
-  switch (typecode) {
-    case DDS_OP_VAL_STR:
-    case DDS_OP_VAL_SEQ:
-    case DDS_OP_VAL_BSQ:
-      alignment = ALIGNMENT_PTR;
-      descriptor->flags |= DDS_TOPIC_NO_OPTIMIZE;
-      break;
-    case DDS_OP_VAL_STU:
-    case DDS_OP_VAL_ARR:
-      /* alignment set by array element type or members of nested struct */
-      descriptor->flags |= DDS_TOPIC_NO_OPTIMIZE;
-      break;
-    case DDS_OP_VAL_BST:
-      alignment = ALIGNMENT_1BY;
-      descriptor->flags |= DDS_TOPIC_NO_OPTIMIZE;
-      break;
-    case DDS_OP_VAL_EXT:
-      /* External struct or union does not mean that the type is NO_OPTIMIZE
-         (if there is no FLAG_EXT). In case of a external union, the
-         NO_OPTIMIZE flag will be set when emitting opcodes for the union. */
-      alignment = ALIGNMENT_1BY;
-      break;
-    case DDS_OP_VAL_8BY:
-      alignment = ALIGNMENT_8BY;
-      break;
-    case DDS_OP_VAL_4BY:
-      alignment = ALIGNMENT_4BY;
-      break;
-    case DDS_OP_VAL_2BY:
-      alignment = ALIGNMENT_2BY;
-      break;
-    case DDS_OP_VAL_BLN:
-    case DDS_OP_VAL_1BY:
-      alignment = ALIGNMENT_1BY;
-      break;
-    case DDS_OP_VAL_ENU:
-      alignment = ALIGNMENT_4BY; /* enum size in memory is 4 bytes (FIXME: some exceptions..) */
-      if (DDS_OP_TYPE_SZ(code) != 4)
-        descriptor->flags |= DDS_TOPIC_NO_OPTIMIZE;
-      break;
-    case DDS_OP_VAL_BMK:
-      switch (DDS_OP_TYPE_SZ(code)) {
-        case 1: alignment = ALIGNMENT_1BY; break;
-        case 2: alignment = ALIGNMENT_2BY; break;
-        case 4: alignment = ALIGNMENT_4BY; break;
-        case 8: alignment = ALIGNMENT_8BY; break;
-        default: abort ();
-      }
-      break;
-    case DDS_OP_VAL_UNI:
-      /* strictly speaking a topic with a union can be optimized if all
-         members have the same size, and if the non-basetype members are all
-         optimizable themselves, and the alignment of the discriminant is not
-         less than the alignment of the members */
-      alignment = ALIGNMENT_1BY;
-      descriptor->flags |= DDS_TOPIC_NO_OPTIMIZE | DDS_TOPIC_CONTAINS_UNION;
-      break;
-  }
-
-  descriptor->alignment = max_alignment(descriptor->alignment, alignment);
   return stash_instruction(pstate, instructions, index, &inst);
 }
 
@@ -916,6 +815,7 @@ emit_case(
         if (idl_is_external(node))
           has_size = true;
         stash_jeq_offset(pstate, &ctype->instructions, off, type_spec, opcode, (int16_t)off);
+        descriptor->n_opcodes++; /* this stashes an opcode, but is using stash_jeq_offset so we'll increase the opcode count here */
         off++;
       }
       /* generate union case discriminator */
@@ -933,7 +833,8 @@ emit_case(
         assert (case_type != INLINE);
         if ((ret = stash_member_size(pstate, &ctype->instructions, off++, node, true)))
           return ret;
-      } else if (idl_is_enum(type_spec)) {
+      } else if (idl_is_enum(type_spec) && case_type == INLINE) {
+        // only add max for inline ENU, not for IN_UNION array of enum
         if ((ret = stash_single(pstate, &ctype->instructions, off++, idl_enum_max_value(type_spec))))
           return ret;
       } else {
@@ -986,7 +887,7 @@ emit_switch_type_spec(
 
   // XTypes spec 7.2.2.4.4.4.6: In a union type, the discriminator member shall always have the 'must understand' attribute set to true.
   opcode |= DDS_OP_FLAG_MU;
-  if (idl_is_topic_key(descriptor->topic, (pstate->config.flags & IDL_FLAG_KEYLIST) != 0, path, &order)) {
+  if (idl_is_topic_key(descriptor->topic, (pstate->config.flags & IDL_FLAG_KEYLIST) != 0, path, &order) != IDL_KEYTYPE_NONE) {
     opcode |= DDS_OP_FLAG_KEY;
     ctype->has_key_member = true;
   }
@@ -1247,8 +1148,9 @@ emit_sequence(
     opcode |= idl_is_bounded(node) ? DDS_OP_TYPE_BSQ : DDS_OP_TYPE_SEQ;
     if ((ret = add_typecode(pstate, type_spec, SUBTYPE, false, &opcode)))
       return ret;
-    if (idl_is_topic_key(descriptor->topic, (pstate->config.flags & IDL_FLAG_KEYLIST) != 0, path, &order)) {
-      opcode |= DDS_OP_FLAG_KEY | DDS_OP_FLAG_MU;
+    idl_keytype_t keytype;
+    if ((keytype = idl_is_topic_key(descriptor->topic, (pstate->config.flags & IDL_FLAG_KEYLIST) != 0, path, &order)) != IDL_KEYTYPE_NONE) {
+      opcode |= DDS_OP_FLAG_KEY | (keytype == IDL_KEYTYPE_EXPLICIT ? DDS_OP_FLAG_MU : 0u);
       ctype->has_key_member = true;
     }
 
@@ -1261,6 +1163,13 @@ emit_sequence(
       assert(idl_is_member(member_node));
       if (idl_is_external(member_node))
         opcode |= DDS_OP_FLAG_EXT;
+
+      if (((idl_member_t *)member_node)->key.value)
+      {
+        opcode |= DDS_OP_FLAG_KEY | DDS_OP_FLAG_MU;
+        ctype->has_key_member = true;
+      }
+
       /* Add FLAG_OPT, and add FLAG_EXT, because an optional field is represented in the same way as
          external fields */
       if (idl_is_optional(member_node))
@@ -1383,8 +1292,9 @@ emit_array(
 
     if ((ret = add_typecode(pstate, type_spec, SUBTYPE, false, &opcode)))
       return ret;
-    if (idl_is_topic_key(descriptor->topic, (pstate->config.flags & IDL_FLAG_KEYLIST) != 0, path, &order)) {
-      opcode |= DDS_OP_FLAG_KEY | DDS_OP_FLAG_MU;
+    idl_keytype_t keytype;
+    if ((keytype = idl_is_topic_key(descriptor->topic, (pstate->config.flags & IDL_FLAG_KEYLIST) != 0, path, &order)) != IDL_KEYTYPE_NONE) {
+      opcode |= DDS_OP_FLAG_KEY | (keytype == IDL_KEYTYPE_EXPLICIT ? DDS_OP_FLAG_MU : 0u);
       ctype->has_key_member = true;
     }
 
@@ -1393,8 +1303,17 @@ emit_array(
        an external member */
     idl_node_t *parent = idl_parent(node);
     if (idl_is_struct(stype->node)) {
+      assert(idl_is_member(parent));
+
       if (idl_is_external(parent))
         opcode |= DDS_OP_FLAG_EXT;
+
+      if (((idl_member_t *)parent)->key.value)
+      {
+        opcode |= DDS_OP_FLAG_KEY | DDS_OP_FLAG_MU;
+        ctype->has_key_member = true;
+      }
+
       /* Add FLAG_OPT, and add FLAG_EXT, because an optional field is represented in the same way as
          external fields */
       if (idl_is_optional(parent))
@@ -1594,9 +1513,14 @@ emit_declarator(
         member is not part of the key (which resulted in idl_is_topic_key returning false).
         The reason for adding the key flag here, is that if any other member (that is a key)
         refers to this type, it will require the key flag. */
-    if (idl_is_topic_key(descriptor->topic, keylist, path, &order) ||
-        (idl_is_member(parent) && ((idl_member_t *)parent)->key.value)
-    ) {
+    idl_keytype_t keytype;
+    if ((keytype = idl_is_topic_key(descriptor->topic, keylist, path, &order)) != IDL_KEYTYPE_NONE)
+    {
+      opcode |= DDS_OP_FLAG_KEY | (keytype == IDL_KEYTYPE_EXPLICIT ? DDS_OP_FLAG_MU : 0u);
+      ctype->has_key_member = true;
+    }
+    else if (idl_is_member(parent) && ((idl_member_t *)parent)->key.value)
+    {
       opcode |= DDS_OP_FLAG_KEY | DDS_OP_FLAG_MU;
       ctype->has_key_member = true;
     }
@@ -2168,7 +2092,7 @@ static idl_retcode_t get_ctype_keys(const idl_pstate_t *pstate, struct descripto
            to the current PLM instruction offset, which is within its ctype). A derived type cannot add keys
            (not allowed in IDL) and therefore is not in the offset list, the offset in this list is the offset
            of the key field in the base type. */
-        uint32_t ops_offs = (uint32_t) inst->data.inst_offset.addr_offs + (uint32_t) inst->data.inst_offset.elem_offs;
+        uint32_t ops_offs = (uint32_t) base_type_ops_offs + (uint32_t) inst->data.inst_offset.addr_offs + (uint32_t) inst->data.inst_offset.elem_offs;
         if ((ret = get_ctype_keys(pstate, descriptor, cbasetype, &ctype_keys, n_keys, false, ops_offs)) != IDL_RETCODE_OK)
           goto err;
         break;
@@ -2378,8 +2302,6 @@ static int print_flags(FILE *fp, struct descriptor *descriptor, bool type_info)
   const char *vec[MAX_FLAGS] = { NULL };
   size_t cnt, len = 0;
 
-  if (descriptor->flags & DDS_TOPIC_NO_OPTIMIZE)
-    vec[len++] = "DDS_TOPIC_NO_OPTIMIZE";
   if (descriptor->flags & DDS_TOPIC_CONTAINS_UNION)
     vec[len++] = "DDS_TOPIC_CONTAINS_UNION";
   if (descriptor->flags & DDS_TOPIC_FIXED_KEY)
@@ -2399,6 +2321,12 @@ static int print_flags(FILE *fp, struct descriptor *descriptor, bool type_info)
       uint32_t typecode = DDS_OP_TYPE(i.data.opcode.code);
       if (typecode == DDS_OP_VAL_STR || typecode == DDS_OP_VAL_BST || typecode == DDS_OP_VAL_SEQ || typecode == DDS_OP_VAL_BSQ)
         fixed_size = false;
+      if (typecode == DDS_OP_VAL_ARR)
+      {
+        uint32_t subtypecode = DDS_OP_SUBTYPE(i.data.opcode.code);
+        if (subtypecode == DDS_OP_VAL_STR || subtypecode == DDS_OP_VAL_BST || subtypecode == DDS_OP_VAL_SEQ || subtypecode == DDS_OP_VAL_BSQ)
+          fixed_size = false;
+      }
     }
   }
 
@@ -2435,10 +2363,9 @@ static int print_descriptor(FILE *fp, struct descriptor *descriptor, bool type_i
     return -1;
   fmt = "const dds_topic_descriptor_t %1$s_desc =\n{\n"
         "  .m_size = sizeof (%1$s),\n" /* size of type */
-        "  .m_align = %2$s,\n" /* alignment */
+        "  .m_align = dds_alignof (%1$s),\n" /* alignment */
         "  .m_flagset = ";
-  assert(descriptor->alignment);
-  if (idl_fprintf(fp, fmt, type, descriptor->alignment->rendering) < 0)
+  if (idl_fprintf(fp, fmt, type) < 0)
     return -1;
   if (print_flags(fp, descriptor, type_info) < 0)
     return -1;

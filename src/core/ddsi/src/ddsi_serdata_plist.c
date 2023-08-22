@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2020 ADLINK Technology Limited and others
+ * Copyright(c) 2020 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -180,7 +180,7 @@ static bool serdata_plist_untyped_to_sample (const struct ddsi_sertype *tpcmn, c
   const dds_return_t rc = ddsi_plist_init_frommsg (sample, NULL, ~(uint64_t)0, ~(uint64_t)0, &src, gv);
   // FIXME: need a more informative return type
   if (rc != DDS_RETCODE_OK && rc != DDS_RETCODE_UNSUPPORTED)
-    GVWARNING ("SPDP (vendor %u.%u): invalid qos/parameters\n", src.vendorid.id[0], src.vendorid.id[1]);
+    GVWARNING ("Invalid %s (vendor %u.%u): invalid qos/parameters\n", tpcmn->type_name, src.vendorid.id[0], src.vendorid.id[1]);
   return (rc == DDS_RETCODE_OK);
 }
 

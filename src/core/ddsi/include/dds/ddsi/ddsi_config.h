@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -17,6 +17,7 @@
 #include "dds/export.h"
 #include "dds/features.h"
 #include "dds/ddsrt/sched.h"
+#include "dds/ddsrt/random.h"
 #include "dds/ddsi/ddsi_portmapping.h"
 #include "dds/ddsi/ddsi_locator.h"
 
@@ -121,7 +122,7 @@ struct ddsi_config_channel_listelem {
   uint32_t auxiliary_bandwidth_limit;
 #endif
   int    diffserv_field;
-  struct thread_state1 *channel_reader_ts;  /* keeping an handle to the running thread for this channel */
+  struct thread_state *channel_reader_thrst;  /* keeping an handle to the running thread for this channel */
   struct nn_dqueue *dqueue; /* The handle of teh delivery queue servicing incoming data for this channel*/
   struct xeventq *evq; /* The handle of the event queue servicing this channel*/
   uint32_t queueId; /* the index of the networkqueue serviced by this channel*/
@@ -236,10 +237,11 @@ struct ddsi_config_socket_buf_size {
 };
 
 struct ddsi_config_network_interface {
-  bool automatic;
+  int automatic;
   char *name;
   char *address;
-  bool prefer_multicast;
+  int prefer_multicast;
+  int presence_required;
   enum ddsi_boolean_default multicast;
   struct ddsi_config_maybe_int32 priority;
 };
@@ -247,6 +249,11 @@ struct ddsi_config_network_interface {
 struct ddsi_config_network_interface_listelem {
   struct ddsi_config_network_interface_listelem *next;
   struct ddsi_config_network_interface cfg;
+};
+
+enum ddsi_config_entity_naming_mode {
+  DDSI_ENTITY_NAMING_DEFAULT_EMPTY,
+  DDSI_ENTITY_NAMING_DEFAULT_FANCY
 };
 
 /* Expensive checks (compiled in when NDEBUG not defined, enabled only if flag set in xchecks) */
@@ -354,7 +361,6 @@ struct ddsi_config
   struct ddsi_config_partitionmapping_listelem *partitionMappings;
 #endif /* DDS_HAS_NETWORK_PARTITIONS */
   struct ddsi_config_peer_listelem *peers;
-  struct ddsi_config_peer_listelem *peers_group;
   struct ddsi_config_thread_properties_listelem *thread_properties;
 
   /* debug/test/undoc features: */
@@ -428,8 +434,11 @@ struct ddsi_config
   int enable_shm;
   char *shm_locator;
   char *iceoryx_service;
-  enum ddsi_shm_loglevel shm_log_lvl;  
+  enum ddsi_shm_loglevel shm_log_lvl;
 #endif
+
+  enum ddsi_config_entity_naming_mode entity_naming_mode;
+  ddsrt_prng_seed_t entity_naming_seed;
 
 #if defined (__cplusplus)
 public:

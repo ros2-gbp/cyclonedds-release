@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -17,7 +17,7 @@
 #include "dds/ddsrt/threads.h"
 #include "dds/ddsrt/environ.h"
 #include "dds/ddsi/ddsi_entity_index.h"
-#include "dds/ddsi/q_entity.h"
+#include "dds/ddsi/ddsi_entity.h"
 #include "dds/ddsi/q_whc.h"
 #include "dds__entity.h"
 
@@ -102,7 +102,7 @@ static dds_entity_t create_and_sync_reader(dds_entity_t subscriber, dds_entity_t
 static void get_writer_whc_state (dds_entity_t writer, struct whc_state *whcst)
 {
   struct dds_entity *wr_entity;
-  struct writer *wr;
+  struct ddsi_writer *wr;
   CU_ASSERT_EQUAL_FATAL(dds_entity_pin(writer, &wr_entity), 0);
   thread_state_awake(lookup_thread_state(), &wr_entity->m_domain->gv);
   wr = entidx_lookup_writer_guid(wr_entity->m_domain->gv.entity_index, &wr_entity->m_guid);

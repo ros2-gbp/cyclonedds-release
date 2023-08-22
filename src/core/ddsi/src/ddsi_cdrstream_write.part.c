@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2021 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -527,7 +527,7 @@ static bool dds_stream_write_pl_memberBO (uint32_t mid, DDS_OSTREAM_T * __restri
 
   /* get must-understand flag from first member op */
   uint32_t flags = DDS_OP_FLAGS (ops[0]);
-  bool must_understand = flags & DDS_OP_FLAG_MU;
+  bool must_understand = flags & (DDS_OP_FLAG_MU | DDS_OP_FLAG_KEY);
 
   /* add emheader with data length code and flags and optionally the serialized size of the data */
   uint32_t em_hdr = 0;

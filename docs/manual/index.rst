@@ -1,5 +1,5 @@
 ..
-   Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+   Copyright(c) 2006 to 2021 ZettaScale Technology and others
 
    This program and the accompanying materials are made available under the
    terms of the Eclipse Public License v. 2.0 which is available at
@@ -18,7 +18,7 @@ Welcome to Eclipse Cyclone DDS's documentation!
    :maxdepth: 3
    :caption: Contents
 
-   GettingStartedGuide/index
+   getting_started
    config
    security
    shared_memory

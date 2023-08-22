@@ -42,6 +42,7 @@ static const uint32_t DDS_Builtin_TypeLookup_Request_ops [] =
   DDS_OP_RTS,
 
   /* TypeLookup_Call */
+  DDS_OP_DLC,
   DDS_OP_ADR | DDS_OP_FLAG_MU | DDS_OP_TYPE_UNI | DDS_OP_SUBTYPE_4BY | DDS_OP_FLAG_SGN, offsetof (DDS_Builtin_TypeLookup_Call, _d), 2u, (12u << 16u) + 4u,
   DDS_OP_JEQ4 | DDS_OP_TYPE_STU | 9 /* TypeLookup_getTypes_In */, 25318099, offsetof (DDS_Builtin_TypeLookup_Call, _u.getTypes), 0u,
   DDS_OP_JEQ4 | DDS_OP_TYPE_STU | 190 /* TypeLookup_getTypeDependencies_In */, 95091505, offsetof (DDS_Builtin_TypeLookup_Call, _u.getTypeDependencies), 0u,
@@ -155,12 +156,12 @@ static const uint32_t DDS_Builtin_TypeLookup_Request_ops [] =
 const dds_topic_descriptor_t DDS_Builtin_TypeLookup_Request_desc =
 {
   .m_size = sizeof (DDS_Builtin_TypeLookup_Request),
-  .m_align = sizeof (char *),
-  .m_flagset = DDS_TOPIC_NO_OPTIMIZE | DDS_TOPIC_CONTAINS_UNION,
+  .m_align = dds_alignof (DDS_Builtin_TypeLookup_Request),
+  .m_flagset = DDS_TOPIC_CONTAINS_UNION,
   .m_nkeys = 0u,
   .m_typename = "DDS::Builtin::TypeLookup_Request",
   .m_keys = NULL,
-  .m_nops = 82,
+  .m_nops = 96,
   .m_ops = DDS_Builtin_TypeLookup_Request_ops,
   .m_meta = ""
 };
@@ -168,13 +169,13 @@ const dds_topic_descriptor_t DDS_Builtin_TypeLookup_Request_desc =
 static const uint32_t DDS_Builtin_TypeLookup_Reply_ops [] =
 {
   /* TypeLookup_Reply */
-  DDS_OP_ADR | DDS_OP_TYPE_EXT, offsetof (DDS_Builtin_TypeLookup_Reply, header), (3u << 16u) + 7u /* RequestHeader */,
+  DDS_OP_ADR | DDS_OP_TYPE_EXT, offsetof (DDS_Builtin_TypeLookup_Reply, header), (3u << 16u) + 7u /* ReplyHeader */,
   DDS_OP_ADR | DDS_OP_TYPE_EXT, offsetof (DDS_Builtin_TypeLookup_Reply, return_data), (3u << 16u) + 36u /* TypeLookup_Return */,
   DDS_OP_RTS,
 
-  /* RequestHeader */
-  DDS_OP_ADR | DDS_OP_TYPE_EXT, offsetof (DDS_RPC_RequestHeader, requestId), (3u << 16u) + 7u /* SampleIdentity */,
-  DDS_OP_ADR | DDS_OP_TYPE_BST, offsetof (DDS_RPC_RequestHeader, instanceName), 256u,
+  /* ReplyHeader */
+  DDS_OP_ADR | DDS_OP_TYPE_EXT, offsetof (DDS_RPC_ReplyHeader, relatedRequestId), (3u << 16u) + 7u /* SampleIdentity */,
+  DDS_OP_ADR | DDS_OP_TYPE_ENU | (2 << DDS_OP_FLAG_SZ_SHIFT), offsetof (DDS_RPC_ReplyHeader, remoteEx), 5u,
   DDS_OP_RTS,
 
   /* SampleIdentity */
@@ -198,12 +199,14 @@ static const uint32_t DDS_Builtin_TypeLookup_Reply_ops [] =
   DDS_OP_RTS,
 
   /* TypeLookup_Return */
+  DDS_OP_DLC,
   DDS_OP_ADR | DDS_OP_FLAG_MU | DDS_OP_TYPE_UNI | DDS_OP_SUBTYPE_4BY | DDS_OP_FLAG_SGN, offsetof (DDS_Builtin_TypeLookup_Return, _d), 2u, (12u << 16u) + 4u,
   DDS_OP_JEQ4 | DDS_OP_TYPE_UNI | 9 /* TypeLookup_getTypes_Result */, 25318099, offsetof (DDS_Builtin_TypeLookup_Return, _u.getType), 0u,
-  DDS_OP_JEQ4 | DDS_OP_TYPE_UNI | 1063 /* TypeLookup_getTypeDependencies_Result */, 95091505, offsetof (DDS_Builtin_TypeLookup_Return, _u.getTypeDependencies), 0u,
+  DDS_OP_JEQ4 | DDS_OP_TYPE_UNI | 1064 /* TypeLookup_getTypeDependencies_Result */, 95091505, offsetof (DDS_Builtin_TypeLookup_Return, _u.getTypeDependencies), 0u,
   DDS_OP_RTS,
 
   /* TypeLookup_getTypes_Result */
+  DDS_OP_DLC,
   DDS_OP_ADR | DDS_OP_FLAG_MU | DDS_OP_TYPE_UNI | DDS_OP_SUBTYPE_4BY | DDS_OP_FLAG_SGN, offsetof (DDS_Builtin_TypeLookup_getTypes_Result, _d), 1u, (8u << 16u) + 4u,
   DDS_OP_JEQ4 | DDS_OP_TYPE_STU | 5 /* TypeLookup_getTypes_Out */, 0, offsetof (DDS_Builtin_TypeLookup_getTypes_Result, _u.result), 0u,
   DDS_OP_RTS,
@@ -823,6 +826,7 @@ static const uint32_t DDS_Builtin_TypeLookup_Reply_ops [] =
   DDS_OP_RTS,
 
   /* TypeLookup_getTypeDependencies_Result */
+  DDS_OP_DLC,
   DDS_OP_ADR | DDS_OP_FLAG_MU | DDS_OP_TYPE_UNI | DDS_OP_SUBTYPE_4BY | DDS_OP_FLAG_SGN, offsetof (DDS_Builtin_TypeLookup_getTypeDependencies_Result, _d), 1u, (8u << 16u) + 4u,
   DDS_OP_JEQ4 | DDS_OP_TYPE_STU | 5 /* TypeLookup_getTypeDependencies_Out */, 0, offsetof (DDS_Builtin_TypeLookup_getTypeDependencies_Result, _u.result), 0u,
   DDS_OP_RTS,
@@ -839,7 +843,7 @@ static const uint32_t DDS_Builtin_TypeLookup_Reply_ops [] =
 
   /* TypeIdentifierWithSize */
   DDS_OP_DLC,
-  DDS_OP_ADR | DDS_OP_TYPE_EXT, offsetof (DDS_XTypes_TypeIdentifierWithSize, type_id), (3u << 16u) + 64485u /* TypeIdentifier */,
+  DDS_OP_ADR | DDS_OP_TYPE_EXT, offsetof (DDS_XTypes_TypeIdentifierWithSize, type_id), (3u << 16u) + 64484u /* TypeIdentifier */,
   DDS_OP_ADR | DDS_OP_TYPE_4BY, offsetof (DDS_XTypes_TypeIdentifierWithSize, typeobject_serialized_size),
   DDS_OP_RTS
 };
@@ -847,12 +851,12 @@ static const uint32_t DDS_Builtin_TypeLookup_Reply_ops [] =
 const dds_topic_descriptor_t DDS_Builtin_TypeLookup_Reply_desc =
 {
   .m_size = sizeof (DDS_Builtin_TypeLookup_Reply),
-  .m_align = 8u,
-  .m_flagset = DDS_TOPIC_NO_OPTIMIZE | DDS_TOPIC_CONTAINS_UNION,
+  .m_align = dds_alignof (DDS_Builtin_TypeLookup_Reply),
+  .m_flagset = DDS_TOPIC_CONTAINS_UNION,
   .m_nkeys = 0u,
   .m_typename = "DDS::Builtin::TypeLookup_Reply",
   .m_keys = NULL,
-  .m_nops = 414,
+  .m_nops = 457,
   .m_ops = DDS_Builtin_TypeLookup_Reply_ops,
   .m_meta = ""
 };

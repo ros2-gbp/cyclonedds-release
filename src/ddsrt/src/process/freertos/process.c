@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2019 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -20,3 +20,8 @@ ddsrt_getpid(void)
   return xTaskGetCurrentTaskHandle();
 }
 
+char *
+ddsrt_getprocessname(void)
+{
+  return pcTaskGetName(xTaskGetCurrentTaskHandle());
+}
