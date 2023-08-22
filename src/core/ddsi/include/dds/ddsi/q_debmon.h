@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2020 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -22,6 +22,7 @@ typedef int (*debug_monitor_plugin_t) (ddsi_tran_conn_t conn, debug_monitor_cpf_
 
 struct debug_monitor *new_debug_monitor (struct ddsi_domaingv *gv, int32_t port);
 void add_debug_monitor_plugin (struct debug_monitor *dm, debug_monitor_plugin_t fn, void *arg);
+bool get_debug_monitor_locator (struct debug_monitor *dm, ddsi_locator_t *locator);
 void free_debug_monitor (struct debug_monitor *dm);
 
 #if defined (__cplusplus)

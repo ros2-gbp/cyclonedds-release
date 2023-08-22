@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2021 ADLINK Technology Limited and others
+ * Copyright(c) 2021 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -20,7 +20,7 @@
 #include "dds/ddsi/q_thread.h"
 #include "dds/ddsi/ddsi_config_impl.h"
 #include "dds/ddsi/ddsi_domaingv.h"
-#include "dds/ddsi/q_entity.h"
+#include "dds/ddsi/ddsi_entity.h"
 #include "dds/ddsi/q_radmin.h"
 #include "dds/ddsi/ddsi_plist.h"
 #include "dds/ddsi/q_transmit.h"
@@ -45,7 +45,7 @@ static struct ddsi_domaingv gv;
 static struct ddsi_config cfg;
 static ddsi_tran_conn_t fakeconn;
 static ddsi_tran_factory_t fakenet;
-static struct thread_state1 *ts1;
+static struct thread_state *thrst;
 static struct nn_rbufpool *rbpool;
 // static struct ddsi_tkmap_instance *tk;
 
@@ -73,12 +73,17 @@ int LLVMFuzzerTestOneInput(
     return EXIT_SUCCESS;
 
   ddsi_iid_init();
-  thread_states_init(64);
+  thread_states_init();
 
-  memset(&dds_global, 0, sizeof(dds_global));
+  // register the main thread, then claim it as spawned by Cyclone because the
+  // internal processing has various asserts that it isn't an application thread
+  // doing the dirty work
+  thrst = lookup_thread_state ();
+  assert (thrst->state == THREAD_STATE_LAZILY_CREATED);
+  thrst->state = THREAD_STATE_ALIVE;
+  ddsrt_atomic_stvoidp (&thrst->gv, &gv);
+
   memset(&gv, 0, sizeof(gv));
-  ddsrt_mutex_init(&dds_global.m_mutex);
-
   ddsi_config_init_default(&gv.config);
   gv.config.transport_selector = DDSI_TRANS_NONE;
 
@@ -95,10 +100,6 @@ int LLVMFuzzerTestOneInput(
   fakeconn->m_read_fn = &fakeconn_read;
   fakeconn->m_write_fn = &fakeconn_write;
 
-  ts1 = lookup_thread_state();
-  ts1->state = THREAD_STATE_ALIVE;
-  ddsrt_atomic_stvoidp(&ts1->gv, &gv);
-
   rbpool = nn_rbufpool_new(&gv.logconfig, gv.config.rbuf_size, gv.config.rmsg_chunk_size);
   nn_rbufpool_setowner(rbpool, ddsrt_thread_self());
 
@@ -108,14 +109,17 @@ int LLVMFuzzerTestOneInput(
   unsigned char *buff = (unsigned char *) NN_RMSG_PAYLOAD (rmsg);
   memcpy (buff, data, size);
   nn_rmsg_setsize (rmsg, (uint32_t) size);
-  ddsi_handle_rtps_message (ts1, &gv, fakeconn, &guidprefix, rbpool, rmsg, size, buff, &srcloc);
+  ddsi_handle_rtps_message (thrst, &gv, fakeconn, &guidprefix, rbpool, rmsg, size, buff, &srcloc);
   nn_rmsg_commit (rmsg);
-
-  nn_reorder_free (gv.spdp_reorder);
-  nn_defrag_free (gv.spdp_defrag);
 
   rtps_fini(&gv);
   nn_rbufpool_free(rbpool);
   free (fakeconn);
+
+  // On shutdown there is an expectation that the thread was discovered dynamically.
+  // We overrode it in the setup code, we undo it now.
+  thrst->state = THREAD_STATE_LAZILY_CREATED;
+  thread_states_fini ();
+  ddsi_iid_fini ();
   return EXIT_SUCCESS;
 }

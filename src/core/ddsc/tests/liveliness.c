@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -17,7 +17,7 @@
 
 #include "dds/version.h"
 #include "dds__entity.h"
-#include "dds/ddsi/q_entity.h"
+#include "dds/ddsi/ddsi_entity.h"
 #include "dds/ddsi/ddsi_entity_index.h"
 #include "dds/ddsrt/cdtors.h"
 #include "dds/ddsrt/misc.h"
@@ -26,6 +26,7 @@
 #include "dds/ddsrt/environ.h"
 #include "dds/ddsrt/atomics.h"
 #include "dds/ddsrt/time.h"
+#include "dds/ddsi/ddsi_participant.h"
 
 #include "test_common.h"
 
@@ -85,12 +86,12 @@ static seqno_t get_pmd_seqno(dds_entity_t participant)
 {
   seqno_t seqno;
   struct dds_entity *pp_entity;
-  struct participant *pp;
-  struct writer *wr;
+  struct ddsi_participant *pp;
+  struct ddsi_writer *wr;
   CU_ASSERT_EQUAL_FATAL(dds_entity_pin(participant, &pp_entity), 0);
   thread_state_awake(lookup_thread_state(), &pp_entity->m_domain->gv);
   pp = entidx_lookup_participant_guid(pp_entity->m_domain->gv.entity_index, &pp_entity->m_guid);
-  wr = get_builtin_writer(pp, NN_ENTITYID_P2P_BUILTIN_PARTICIPANT_MESSAGE_WRITER);
+  wr = ddsi_get_builtin_writer (pp, NN_ENTITYID_P2P_BUILTIN_PARTICIPANT_MESSAGE_WRITER);
   CU_ASSERT_FATAL(wr != NULL);
   assert(wr != NULL); /* for Clang's static analyzer */
   seqno = wr->seq;
@@ -106,11 +107,11 @@ static dds_duration_t get_pmd_interval(dds_entity_t participant)
 {
   dds_duration_t intv;
   struct dds_entity *pp_entity;
-  struct participant *pp;
+  struct ddsi_participant *pp;
   CU_ASSERT_EQUAL_FATAL(dds_entity_pin(participant, &pp_entity), 0);
   thread_state_awake(lookup_thread_state(), &pp_entity->m_domain->gv);
   pp = entidx_lookup_participant_guid(pp_entity->m_domain->gv.entity_index, &pp_entity->m_guid);
-  intv = pp_get_pmd_interval(pp);
+  intv = ddsi_participant_get_pmd_interval(pp);
   thread_state_asleep(lookup_thread_state());
   dds_entity_unpin(pp_entity);
   return intv;

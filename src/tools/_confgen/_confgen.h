@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2020 ADLINK Technology Limited and others
+ * Copyright(c) 2020 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -47,6 +47,8 @@ void gendef_pf_boolean_default (FILE *fp, void *parent, struct cfgelem const * c
 void gendef_pf_besmode (FILE *fp, void *parent, struct cfgelem const * const cfgelem);
 void gendef_pf_retransmit_merging (FILE *fp, void *parent, struct cfgelem const * const cfgelem);
 void gendef_pf_sched_class (FILE *fp, void *parent, struct cfgelem const * const cfgelem);
+void gendef_pf_entity_naming_mode (FILE *fp, void *parent, struct cfgelem const * const cfgelem);
+void gendef_pf_random_seed (FILE *fp, void *parent, struct cfgelem const * const cfgelem);
 void gendef_pf_transport_selector (FILE *fp, void *parent, struct cfgelem const * const cfgelem);
 void gendef_pf_many_sockets_mode (FILE *fp, void *parent, struct cfgelem const * const cfgelem);
 void gendef_pf_standards_conformance (FILE *fp, void *parent, struct cfgelem const * const cfgelem);

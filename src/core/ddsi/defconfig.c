@@ -68,7 +68,7 @@ void ddsi_config_init_default (struct ddsi_config *cfg)
   cfg->socket_sndbuf_size.max.isdefault = 1;
   cfg->nack_delay = INT64_C (100000000);
   cfg->ack_delay = INT64_C (10000000);
-  cfg->auto_resched_nack_delay = INT64_C (1000000000);
+  cfg->auto_resched_nack_delay = INT64_C (3000000000);
   cfg->preemptive_ack_delay = INT64_C (10000000);
   cfg->ddsi2direct_max_threads = UINT32_C (1);
   cfg->max_sample_size = UINT32_C (2147483647);
@@ -104,13 +104,13 @@ void ddsi_config_init_default (struct ddsi_config *cfg)
   cfg->shm_log_lvl = INT32_C (4);
 #endif /* DDS_HAS_SHM */
 }
-/* generated from ddsi_config.h[65e4d0ff87910896249e76fb2e80d209874d4f7d] */
-/* generated from ddsi_cfgunits.h[1e595223d52f30511d2b844a979277227d15fd3e] */
-/* generated from ddsi_cfgelems.h[1b576c58b8e860d90bb52a8f134dd0d4c4717ce8] */
-/* generated from ddsi_config.c[cfa9bdfba7ced22441d4139e93049ca8ac705da4] */
-/* generated from _confgen.h[4c987ae42ea0d7e691a88609b30aaf756260a8c4] */
-/* generated from _confgen.c[d1f3a36646cebdcbe4788725beebad9f5ee90f94] */
-/* generated from generate_rnc.c[9785c4c557a472db1c1685daa2b82c39202ed17a] */
-/* generated from generate_md.c[c3f3a8c63374bad4dbfb792e3509d4a5ab0d03fd] */
-/* generated from generate_xsd.c[47ff306dce0c19d2c18704ce674642f62cccf40f] */
-/* generated from generate_defconfig.c[a92ac1bffb20880e2efbc215e17b1c8c32f4ee5e] */
+/* generated from ddsi_config.h[87da706bc9c463a87326e87b311d8291d5761d43] */
+/* generated from ddsi_cfgunits.h[fc550f1620aa20dcd9244ef4e24299d5001efbb4] */
+/* generated from ddsi_cfgelems.h[c54fbee60d780fadc6ebc3c738c5d2c5051e689a] */
+/* generated from ddsi_config.c[98486715ac072b7b3cc3a449d55676be1218c98c] */
+/* generated from _confgen.h[01ffa8a2e53b2309451756861466551cfe28c8ce] */
+/* generated from _confgen.c[13cd40932d695abae1470202a42c18dc4d09ea84] */
+/* generated from generate_rnc.c[a2ec6e48d33ac14a320c8ec3f320028a737920e0] */
+/* generated from generate_md.c[a61b6a9649d18afeca4c73b5784f36989d7994e0] */
+/* generated from generate_xsd.c[45064e8869b3c00573057d7c8f02d20f04b40e16] */
+/* generated from generate_defconfig.c[eec9ab7b2d053e68500799b693d089e84153a37b] */

@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -117,7 +117,13 @@ static int compare_interface_priority (const void *va, const void *vb)
   return (a->priority == b->priority) ? 0 : (a->priority < b->priority) ? 1 : -1;
 }
 
-static int maybe_add_interface (struct ddsi_domaingv * const gv, struct nn_interface *dst, const ddsrt_ifaddrs_t *ifa)
+enum maybe_add_interface_result {
+  MAI_IGNORED,
+  MAI_ADDED,
+  MAI_OUT_OF_MEMORY
+};
+
+static enum maybe_add_interface_result maybe_add_interface (struct ddsi_domaingv * const gv, struct nn_interface *dst, const ddsrt_ifaddrs_t *ifa, int *qout)
 {
   // returns quality >= 0 if added, < 0 otherwise
   char addrbuf[DDSI_LOCSTRLEN];
@@ -126,10 +132,10 @@ static int maybe_add_interface (struct ddsi_domaingv * const gv, struct nn_inter
   /* interface must be up */
   if ((ifa->flags & IFF_UP) == 0) {
     GVLOG (DDS_LC_CONFIG, " (interface down)");
-    return -1;
+    return MAI_IGNORED;
   } else if (ddsrt_sockaddr_isunspecified(ifa->addr)) {
     GVLOG (DDS_LC_CONFIG, " (address unspecified)");
-    return -1;
+    return MAI_IGNORED;
   }
 
   switch (ifa->type)
@@ -145,10 +151,7 @@ static int maybe_add_interface (struct ddsi_domaingv * const gv, struct nn_inter
   }
 
   if (ddsi_locator_from_sockaddr (gv->m_factory, &dst->loc, ifa->addr) < 0)
-  {
-    // pretend we didn't see it
-    return -1;
-  }
+    return MAI_IGNORED;
   ddsi_locator_to_string_no_port(addrbuf, sizeof(addrbuf), &dst->loc);
   GVLOG (DDS_LC_CONFIG, " %s(", addrbuf);
 
@@ -203,7 +206,7 @@ static int maybe_add_interface (struct ddsi_domaingv * const gv, struct nn_inter
   if (ifa->addr->sa_family == AF_INET && ifa->netmask)
   {
     if (ddsi_locator_from_sockaddr (gv->m_factory, &dst->netmask, ifa->netmask) < 0)
-      return -1;
+      return MAI_IGNORED;
   }
   else
   {
@@ -220,10 +223,12 @@ static int maybe_add_interface (struct ddsi_domaingv * const gv, struct nn_inter
   dst->loopback = loopback ? 1 : 0;
   dst->link_local = link_local ? 1 : 0;
   dst->if_index = ifa->index;
-  dst->name = ddsrt_strdup (ifa->name);
+  if ((dst->name = ddsrt_strdup (ifa->name)) == NULL)
+    return MAI_OUT_OF_MEMORY;
   dst->priority = loopback ? 2 : 0;
   dst->prefer_multicast = 0;
-  return q;
+  *qout = q;
+  return MAI_ADDED;
 }
 
 static bool gather_interfaces (struct ddsi_domaingv * const gv, size_t *n_interfaces, struct nn_interface **interfaces, size_t *maxq_count, size_t **maxq_list)
@@ -238,8 +243,12 @@ static bool gather_interfaces (struct ddsi_domaingv * const gv, size_t *n_interf
   *maxq_count = 0;
   *n_interfaces = 0;
   size_t max_interfaces = 8;
-  *maxq_list = ddsrt_malloc (max_interfaces * sizeof (**maxq_list));
-  *interfaces = ddsrt_malloc (max_interfaces * sizeof (**interfaces));
+  *interfaces = NULL;
+  if ((*maxq_list = ddsrt_malloc (max_interfaces * sizeof (**maxq_list))) == NULL ||
+      (*interfaces = ddsrt_malloc (max_interfaces * sizeof (**interfaces))) == NULL)
+  {
+    goto fail;
+  }
   const char *last_if_name = "";
   const char *sep = " ";
   int quality = -1;
@@ -252,21 +261,33 @@ static bool gather_interfaces (struct ddsi_domaingv * const gv, size_t *n_interf
     if (*n_interfaces == max_interfaces)
     {
       max_interfaces *= 2;
-      *maxq_list = ddsrt_realloc (*maxq_list, max_interfaces * sizeof (**maxq_list));
-      *interfaces = ddsrt_realloc (*interfaces, max_interfaces * sizeof (**interfaces));
+      size_t *new_maxq_list;
+      if ((new_maxq_list = ddsrt_realloc (*maxq_list, max_interfaces * sizeof (**maxq_list))) == NULL)
+        goto fail;
+      *maxq_list = new_maxq_list;
+      struct nn_interface *new_interfaces;
+      if ((new_interfaces = ddsrt_realloc (*interfaces, max_interfaces * sizeof (**interfaces))) == NULL)
+        goto fail;
+      *interfaces = new_interfaces;
     }
 
-    const int q = maybe_add_interface (gv, &(*interfaces)[*n_interfaces], ifa);
-    if (q >= 0)
+    int q;
+    switch (maybe_add_interface (gv, &(*interfaces)[*n_interfaces], ifa, &q))
     {
-      if (q == quality) {
-        (*maxq_list)[(*maxq_count)++] = *n_interfaces;
-      } else if (q > quality) {
-        (*maxq_list)[0] = *n_interfaces;
-        *maxq_count = 1;
-        quality = q;
-      }
-      (*n_interfaces)++;
+      case MAI_IGNORED:
+        break;
+      case MAI_OUT_OF_MEMORY:
+        goto fail;
+      case MAI_ADDED:
+        if (q == quality) {
+          (*maxq_list)[(*maxq_count)++] = *n_interfaces;
+        } else if (q > quality) {
+          (*maxq_list)[0] = *n_interfaces;
+          *maxq_count = 1;
+          quality = q;
+        }
+        (*n_interfaces)++;
+        break;
     }
   }
   GVLOG (DDS_LC_CONFIG, "\n");
@@ -275,13 +296,17 @@ static bool gather_interfaces (struct ddsi_domaingv * const gv, size_t *n_interf
   if (*n_interfaces == 0)
   {
     GVERROR ("failed to find interfaces for \"%s\"\n", gv->m_factory->m_typename);
-    ddsrt_free (*maxq_list);
-    ddsrt_free (*interfaces);
+    goto fail;
   }
-  return (*n_interfaces > 0);
+  return true;
+
+fail:
+  ddsrt_free (*maxq_list);
+  ddsrt_free (*interfaces);
+  return false;
 }
 
-static bool match_config_interface (struct ddsi_domaingv * const gv, size_t n_interfaces, struct nn_interface const * const interfaces, const struct ddsi_config_network_interface_listelem *iface, size_t *match)
+static bool match_config_interface (struct ddsi_domaingv * const gv, size_t n_interfaces, struct nn_interface const * const interfaces, const struct ddsi_config_network_interface_listelem *iface, size_t *match, bool required)
 {
   const bool has_name = iface->cfg.name != NULL && iface->cfg.name[0] != '\0';
   const bool has_address = iface->cfg.address != NULL && iface->cfg.address[0] != '\0';
@@ -294,8 +319,13 @@ static bool match_config_interface (struct ddsi_domaingv * const gv, size_t n_in
     enum find_interface_result address_result = find_interface_by_address (gv, iface->cfg.address, n_interfaces, interfaces, &address_match);
 
     if (name_result != FIR_OK || address_result != FIR_OK) {
-      GVERROR ("%s/%s: does not match an available interface\n", iface->cfg.name, iface->cfg.address);
-      return false;
+      if (required) {
+        GVERROR ("%s/%s: does not match an available interface\n", iface->cfg.name, iface->cfg.address);
+        return false;
+      }
+
+      GVWARNING ("%s/%s: optional interface was not found.\n", iface->cfg.name, iface->cfg.address);
+      return true;
     }
     else if (name_match != address_match) {
       GVERROR ("%s/%s: do not match the same interface\n", iface->cfg.name, iface->cfg.address);
@@ -307,14 +337,22 @@ static bool match_config_interface (struct ddsi_domaingv * const gv, size_t n_in
   } else if (has_name) {
     enum find_interface_result name_result = find_interface_by_name (iface->cfg.name, n_interfaces, interfaces, match);
     if (name_result != FIR_OK) {
-      GVERROR ("%s: does not match an available interface\n", iface->cfg.name);
-      return false;
+      if (required) {
+        GVERROR ("%s: does not match an available interface.\n", iface->cfg.name);
+        return false;
+      }
+      GVWARNING ("%s: optional interface was not found.\n", iface->cfg.name);
+      return true;
     }
   } else if (has_address) {
     enum find_interface_result address_result = find_interface_by_address (gv, iface->cfg.address, n_interfaces, interfaces, match);
     if (address_result != FIR_OK) {
-      GVERROR ("%s: does not match an available interface\n", iface->cfg.address);
-      return false;
+      if (required) {
+        GVERROR ("%s: does not match an available interface\n", iface->cfg.address);
+        return false;
+      }
+      GVWARNING ("%s: optional interface was not found.\n", iface->cfg.address);
+      return true;
     }
   } else {
     GVERROR ("Nameless and address-less interface listed in interfaces.\n");
@@ -331,12 +369,12 @@ static bool add_matching_interface (struct ddsi_domaingv *gv, struct interface_p
       return false;
     }
   }
-  
-  act_iface->prefer_multicast = (unsigned int) cfg_iface->cfg.prefer_multicast;
-  
+
+  act_iface->prefer_multicast = ((unsigned) cfg_iface->cfg.prefer_multicast) & 1;
+
   if (!cfg_iface->cfg.priority.isdefault)
     act_iface->priority = cfg_iface->cfg.priority.value;
-  
+
   if (cfg_iface->cfg.multicast != DDSI_BOOLDEF_DEFAULT) {
     if (act_iface->mc_capable && cfg_iface->cfg.multicast == DDSI_BOOLDEF_FALSE) {
       GVLOG (DDS_LC_CONFIG, "disabling multicast on interface %s.", act_iface->name);
@@ -347,7 +385,7 @@ static bool add_matching_interface (struct ddsi_domaingv *gv, struct interface_p
       act_iface->mc_capable = 1;
     }
   }
-  
+
   if (*num_matches == MAX_XMIT_CONNS)
   {
     GVERROR ("too many interfaces specified\n");
@@ -369,7 +407,7 @@ static void log_arbitrary_selection (struct ddsi_domaingv *gv, const struct nn_i
     GVLOG (DDS_LC_INFO, "%s%s", (i == 0) ? "" : ", ", interfaces[maxq_list[i]].name);
   GVLOG (DDS_LC_INFO, "\n");
 }
-  
+
 int find_own_ip (struct ddsi_domaingv *gv)
 {
   char addrbuf[DDSI_LOCSTRLEN];
@@ -399,20 +437,23 @@ int find_own_ip (struct ddsi_domaingv *gv)
       log_arbitrary_selection (gv, interfaces, maxq_list, maxq_count);
     gv->n_interfaces = 1;
     gv->interfaces[0] = interfaces[maxq_list[0]];
-    gv->interfaces[0].name = ddsrt_strdup (gv->interfaces[0].name);
+    if ((gv->interfaces[0].name = ddsrt_strdup (gv->interfaces[0].name)) == NULL)
+      ok = false;
   }
   else // Obtain priority settings
   {
     size_t num_matches = 0;
     size_t maxq_index = 0;
     struct interface_priority *matches = ddsrt_malloc (n_interfaces * sizeof (*matches));
+    if (matches == NULL)
+      ok = false;
     for (struct ddsi_config_network_interface_listelem *iface = gv->config.network_interfaces; iface && ok; iface = iface->next)
     {
       size_t match = SIZE_MAX;
       bool has_name = iface->cfg.name != NULL && iface->cfg.name[0] != '\0';
       bool has_address = iface->cfg.address != NULL && iface->cfg.address[0] != '\0';
       if (!iface->cfg.automatic) {
-        ok = match_config_interface(gv, n_interfaces, interfaces, iface, &match);
+        ok = match_config_interface(gv, n_interfaces, interfaces, iface, &match, iface->cfg.presence_required);
       } else if (has_name || has_address) {
         GVERROR ("An autodetermined interface should not have its name or address property specified.\n");
         ok = false;
@@ -434,9 +475,10 @@ int find_own_ip (struct ddsi_domaingv *gv)
       ok = false;
     } else {
       qsort (matches, num_matches, sizeof (*matches), compare_interface_priority);
-      for(size_t i = 0; i < num_matches; ++i) {
+      for(size_t i = 0; i < num_matches && ok; ++i) {
         gv->interfaces[gv->n_interfaces] = interfaces[matches[i].match];
-        gv->interfaces[gv->n_interfaces].name = ddsrt_strdup (gv->interfaces[gv->n_interfaces].name);
+        if ((gv->interfaces[gv->n_interfaces].name = ddsrt_strdup (gv->interfaces[gv->n_interfaces].name)) == NULL)
+          ok = false;
         gv->n_interfaces++;
       }
     }
@@ -444,7 +486,7 @@ int find_own_ip (struct ddsi_domaingv *gv)
   }
 
   gv->using_link_local_intf = false;
-  for (int i = 0; i < gv->n_interfaces; i++)
+  for (int i = 0; i < gv->n_interfaces && ok; i++)
   {
     if (!gv->interfaces[i].link_local)
       continue;
@@ -454,7 +496,6 @@ int find_own_ip (struct ddsi_domaingv *gv)
     {
       GVERROR ("multiple interfaces selected with at least one having a link-local address\n");
       ok = false;
-      break;
     }
   }
 
@@ -467,7 +508,8 @@ int find_own_ip (struct ddsi_domaingv *gv)
   if (!ok)
   {
     for (int i = 0; i < gv->n_interfaces; i++)
-      ddsrt_free (gv->interfaces[i].name);
+      if (gv->interfaces[i].name)
+        ddsrt_free (gv->interfaces[i].name);
     gv->n_interfaces = 0;
     return 0;
   }

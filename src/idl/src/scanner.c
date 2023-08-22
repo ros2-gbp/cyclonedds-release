@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2021 ADLINK Technology Limited and others
+ * Copyright(c) 2021 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -308,7 +308,7 @@ scan_string_literal(idl_pstate_t *pstate, const char *cur, const char **lim)
       break;
   }
 
-  if (cnt < 0) {
+  if (cnt < 0 || need_refill(pstate, cur)) {
     return IDL_RETCODE_NEED_REFILL;
   } else if (cnt > 0) {
     error(pstate, cur, "unterminated string literal");

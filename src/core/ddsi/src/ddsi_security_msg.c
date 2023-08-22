@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -15,7 +15,8 @@
 #include "dds/ddsrt/heap.h"
 #include "dds/ddsrt/string.h"
 #include "dds/ddsi/q_bswap.h"
-#include "dds/ddsi/q_entity.h"
+#include "dds/ddsi/ddsi_entity.h"
+#include "dds/ddsi/ddsi_proxy_participant.h"
 #include "dds/ddsi/q_transmit.h"
 #include "dds/ddsi/q_misc.h"
 #include "dds/ddsi/ddsi_tkmap.h"
@@ -160,7 +161,7 @@ nn_participant_generic_message_deseralize(
   return plist_deser_generic (msg, data, len, bswap, pserop_participant_generic_message);
 }
 
-int volatile_secure_data_filter(struct writer *wr, struct proxy_reader *prd, struct ddsi_serdata *serdata)
+int volatile_secure_data_filter(struct ddsi_writer *wr, struct ddsi_proxy_reader *prd, struct ddsi_serdata *serdata)
 {
   static const size_t guid_offset = offsetof(nn_participant_generic_message_t, destination_participant_guid);
   ddsrt_iovec_t guid_ref = { .iov_len=0, .iov_base=NULL };
@@ -180,7 +181,7 @@ int volatile_secure_data_filter(struct writer *wr, struct proxy_reader *prd, str
   assert(guid_ref.iov_base);
   msg_guid = (ddsi_guid_t*)guid_ref.iov_base;
 
-  pass = is_null_guid(msg_guid);
+  pass = ddsi_is_null_guid(msg_guid);
   if (!pass)
   {
     pp_guid = nn_hton_guid(prd->c.proxypp->e.guid);

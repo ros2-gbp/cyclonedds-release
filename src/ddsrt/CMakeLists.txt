@@ -1,5 +1,5 @@
 #
-# Copyright(c) 2006 to 2022 ADLINK Technology Limited and others
+# Copyright(c) 2006 to 2022 ZettaScale Technology and others
 #
 # This program and the accompanying materials are made available under the
 # terms of the Eclipse Public License v. 2.0 which is available at
@@ -71,7 +71,8 @@ set(headers
   "${source_dir}/include/dds/ddsrt/threads.h"
   "${source_dir}/src/threads_priv.h"
   "${source_dir}/include/dds/ddsrt/cdtors.h"
-  "${source_dir}/include/dds/ddsrt/random.h")
+  "${source_dir}/include/dds/ddsrt/random.h"
+  "${source_dir}/include/dds/ddsrt/align.h")
 
 set(sources
   "${source_dir}/src/atomics.c"

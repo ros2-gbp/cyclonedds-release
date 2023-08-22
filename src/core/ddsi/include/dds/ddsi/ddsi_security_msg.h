@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -26,9 +26,9 @@
 extern "C" {
 #endif
 
-struct participant;
-struct writer;
-struct proxy_reader;
+struct ddsi_participant;
+struct ddsi_writer;
+struct ddsi_proxy_reader;
 struct ddsi_serdata;
 
 #define DDS_SECURITY_AUTH_REQUEST                     "dds.sec.auth_request"
@@ -109,8 +109,8 @@ DDS_EXPORT extern const size_t pserop_participant_generic_message_nops;
 
 DDS_EXPORT int
 volatile_secure_data_filter(
-   struct writer *wr,
-   struct proxy_reader *prd,
+   struct ddsi_writer *wr,
+   struct ddsi_proxy_reader *prd,
    struct ddsi_serdata *serdata);
 
 #if defined (__cplusplus)

@@ -1,5 +1,5 @@
 #
-# Copyright(c) 2006 to 2019 ADLINK Technology Limited and others
+# Copyright(c) 2006 to 2022 ZettaScale Technology and others
 #
 # This program and the accompanying materials are made available under the
 # terms of the Eclipse Public License v. 2.0 which is available at
@@ -9,12 +9,8 @@
 #
 # SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 #
-cmake_minimum_required(VERSION 3.10)
-project(CycloneDDS VERSION 0.9.1 LANGUAGES C)
-if(CMAKE_VERSION VERSION_LESS 3.12)
-  # GENERATE_EXPORT_HEADER requires a C++ compiler up to version 3.12
-  enable_language(CXX)
-endif()
+cmake_minimum_required(VERSION 3.16)
+project(CycloneDDS VERSION 0.10.3 LANGUAGES C)
 
 # Set a default build type if none was specified
 set(default_build_type "RelWithDebInfo")
@@ -179,12 +175,6 @@ if(${CMAKE_GENERATOR} STREQUAL "Xcode")
   set (CMAKE_XCODE_ATTRIBUTE_GCC_WARN_ABOUT_MISSING_PROTOTYPES YES)
 endif()
 
-if(CMAKE_VERSION VERSION_LESS 3.13)
-  macro(add_link_options)
-    link_libraries(${ARGV})
-  endmacro()
-endif()
-
 # Make it easy to enable MSVC, Clang's/gcc's analyzers
 set(ANALYZER "" CACHE STRING "Analyzer to enable on the build.")
 if(ANALYZER)
@@ -251,6 +241,12 @@ option(BUILD_IDLC_TESTING "Build the idl compiler tests" OFF)
 option(BUILD_EXAMPLES "Build examples." OFF)
 
 option(BUILD_DOCS "Build documentation." OFF)
+
+option(ENABLE_LTO "Enable link time optimization." ON)
+
+if(MSVC)
+  option(INSTALL_PDB "Install PDB files next to DLLs." ${BUILD_SHARED_LIBS})
+endif()
 
 # Build all executables and libraries into the top-level /bin and /lib folders.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")

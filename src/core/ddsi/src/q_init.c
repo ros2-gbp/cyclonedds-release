@@ -1,6 +1,5 @@
 /*
- * Copyright(c) 2022 ZettaScale Technology
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -40,7 +39,10 @@
 #include "dds/ddsi/ddsi_entity_index.h"
 #include "dds/ddsi/q_lease.h"
 #include "dds/ddsi/q_gc.h"
-#include "dds/ddsi/q_entity.h"
+#include "dds/ddsi/ddsi_entity.h"
+#include "dds/ddsi/ddsi_participant.h"
+#include "dds/ddsi/ddsi_proxy_participant.h"
+#include "dds/ddsi/ddsi_endpoint.h"
 #include "dds/ddsi/ddsi_ownip.h"
 #include "dds/ddsi/ddsi_domaingv.h"
 #include "dds/ddsi/q_xmsg.h"
@@ -157,20 +159,6 @@ static void make_builtin_volatile_endpoint_xqos (dds_qos_t *q, const dds_qos_t *
   q->reliability.max_blocking_time = DDS_MSECS (100);
   q->durability.kind = DDS_DURABILITY_VOLATILE;
   q->history.kind = DDS_HISTORY_KEEP_ALL;
-}
-#endif
-
-#ifdef DDS_HAS_SECURITY
-static void add_property_to_xqos(dds_qos_t *q, const char *name, const char *value)
-{
-  assert(!(q->present & QP_PROPERTY_LIST));
-  q->present |= QP_PROPERTY_LIST;
-  q->property.value.n = 1;
-  q->property.value.props = ddsrt_malloc(sizeof(dds_property_t));
-  q->property.binary_value.n = 0;
-  q->property.binary_value.props = NULL;
-  q->property.value.props[0].name = ddsrt_strdup(name);
-  q->property.value.props[0].value = ddsrt_strdup(value);
 }
 #endif
 
@@ -642,26 +630,6 @@ int rtps_config_prep (struct ddsi_domaingv *gv, struct cfgst *cfgst)
     goto err_config_late_error;
   }
 
-  /* Thread admin: need max threads, which is currently (2 or 3) for each
-     configured channel plus 9: main, recv (up to 3x), dqueue.builtin,
-     lease, gc, debmon; once thread state admin has been inited, upgrade the
-     main thread one participating in the thread tracking stuff as
-     if it had been created using create_thread(). */
-#if 0 /* FIXME: threads are per-process, not per-domain */
-  {
-  /* Temporary: thread states for each application thread is managed using thread_states structure
-  */
-#define USER_MAX_THREADS 50
-
-#ifdef DDS_HAS_NETWORK_CHANNELS
-    const unsigned max_threads = 9 + USER_MAX_THREADS + num_channel_threads + gv->config.ddsi2direct_max_threads;
-#else
-    const unsigned max_threads = 11 + USER_MAX_THREADS + gv->config.ddsi2direct_max_threads;
-#endif
-    thread_states_init (max_threads);
-  }
-#endif
-
   /* Now the per-thread-log-buffers are set up, so print the configuration.  Note that configurations
      passed in as initializers don't have associated parsing state and source information.
 
@@ -819,11 +787,11 @@ static void wait_for_receive_threads (struct ddsi_domaingv *gv)
   }
   for (uint32_t i = 0; i < gv->n_recv_threads; i++)
   {
-    if (gv->recv_threads[i].ts)
+    if (gv->recv_threads[i].thrst)
     {
-      join_thread (gv->recv_threads[i].ts);
-      /* setting .ts to NULL helps in sanity checking */
-      gv->recv_threads[i].ts = NULL;
+      join_thread (gv->recv_threads[i].thrst);
+      /* setting .thrst to NULL helps in sanity checking */
+      gv->recv_threads[i].thrst = NULL;
     }
   }
   if (trigev)
@@ -977,7 +945,7 @@ static int setup_and_start_recv_threads (struct ddsi_domaingv *gv)
 
   for (uint32_t i = 0; i < MAX_RECV_THREADS; i++)
   {
-    gv->recv_threads[i].ts = NULL;
+    gv->recv_threads[i].thrst = NULL;
     gv->recv_threads[i].arg.mode = RTM_SINGLE;
     gv->recv_threads[i].arg.rbpool = NULL;
     gv->recv_threads[i].arg.gv = gv;
@@ -1033,7 +1001,7 @@ static int setup_and_start_recv_threads (struct ddsi_domaingv *gv)
         goto fail;
       }
     }
-    if (create_thread (&gv->recv_threads[i].ts, gv, gv->recv_threads[i].name, recv_thread, &gv->recv_threads[i].arg) != DDS_RETCODE_OK)
+    if (create_thread (&gv->recv_threads[i].thrst, gv, gv->recv_threads[i].name, recv_thread, &gv->recv_threads[i].arg) != DDS_RETCODE_OK)
     {
       GVERROR ("rtps_init: failed to start thread %s\n", gv->recv_threads[i].name);
       goto fail;
@@ -1068,11 +1036,11 @@ static uint32_t ddsi_sertype_hash_wrap (const void *tp)
 #ifdef DDS_HAS_TOPIC_DISCOVERY
 static int topic_definition_equal_wrap (const void *tpd_a, const void *tpd_b)
 {
-  return topic_definition_equal (tpd_a, tpd_b);
+  return ddsi_topic_definition_equal (tpd_a, tpd_b);
 }
 static uint32_t topic_definition_hash_wrap (const void *tpd)
 {
-  return topic_definition_hash (tpd);
+  return ddsi_topic_definition_hash (tpd);
 }
 #endif /* DDS_HAS_TYPE_DISCOVERY */
 
@@ -1490,6 +1458,7 @@ int rtps_init (struct ddsi_domaingv *gv)
   gv->default_local_plist_pp.qos.present |= QP_LIVELINESS;
   gv->default_local_plist_pp.qos.liveliness.kind = DDS_LIVELINESS_AUTOMATIC;
   gv->default_local_plist_pp.qos.liveliness.lease_duration = gv->config.lease_duration;
+
   ddsi_xqos_copy (&gv->spdp_endpoint_xqos, &ddsi_default_qos_reader);
   ddsi_xqos_mergein_missing (&gv->spdp_endpoint_xqos, &ddsi_default_qos_writer, ~(uint64_t)0);
   gv->spdp_endpoint_xqos.durability.kind = DDS_DURABILITY_TRANSIENT_LOCAL;
@@ -1510,9 +1479,30 @@ int rtps_init (struct ddsi_domaingv *gv)
 
   /* Setting these properties allows the CryptoKeyFactory to recognize
    * the entities (see DDS Security spec chapter 8.8.8.1). */
-  add_property_to_xqos(&gv->builtin_secure_volatile_xqos_rd, DDS_SEC_PROP_BUILTIN_ENDPOINT_NAME, "BuiltinParticipantVolatileMessageSecureReader");
-  add_property_to_xqos(&gv->builtin_secure_volatile_xqos_wr, DDS_SEC_PROP_BUILTIN_ENDPOINT_NAME, "BuiltinParticipantVolatileMessageSecureWriter");
+  ddsi_xqos_add_property_if_unset(&gv->builtin_secure_volatile_xqos_rd, false, DDS_SEC_PROP_BUILTIN_ENDPOINT_NAME, "BuiltinParticipantVolatileMessageSecureReader");
+  ddsi_xqos_add_property_if_unset(&gv->builtin_secure_volatile_xqos_wr, false, DDS_SEC_PROP_BUILTIN_ENDPOINT_NAME, "BuiltinParticipantVolatileMessageSecureWriter");
 #endif
+
+  /* participant location properties */
+  {
+    char * procname = ddsrt_getprocessname();
+    char namebuf[256];
+
+    if (procname) {
+      ddsi_xqos_add_property_if_unset(&gv->default_local_plist_pp.qos, true, DDS_BUILTIN_TOPIC_PARTICIPANT_PROPERTY_PROCESS_NAME, procname);
+      ddsrt_free(procname);
+    }
+
+    snprintf(namebuf, sizeof(namebuf), "%" PRIdPID, ddsrt_getpid());
+    ddsi_xqos_add_property_if_unset(&gv->default_local_plist_pp.qos, true, DDS_BUILTIN_TOPIC_PARTICIPANT_PROPERTY_PID, namebuf);
+
+#if DDSRT_HAVE_GETHOSTNAME
+    if (ddsrt_gethostname(namebuf, sizeof(namebuf)) == DDS_RETCODE_OK) {
+      ddsi_xqos_add_property_if_unset(&gv->default_local_plist_pp.qos, true, DDS_BUILTIN_TOPIC_PARTICIPANT_PROPERTY_HOSTNAME, namebuf);
+    }
+#endif
+  }
+
 
   ddsrt_mutex_init (&gv->sertypes_lock);
   gv->sertypes = ddsrt_hh_new (1, ddsi_sertype_hash_wrap, ddsi_sertype_equal_wrap);
@@ -1521,6 +1511,8 @@ int rtps_init (struct ddsi_domaingv *gv)
   ddsrt_mutex_init (&gv->typelib_lock);
   ddsrt_cond_init (&gv->typelib_resolved_cond);
   ddsrt_avl_init (&ddsi_typelib_treedef, &gv->typelib);
+  ddsrt_avl_init (&ddsi_typedeps_treedef, &gv->typedeps);
+  ddsrt_avl_init (&ddsi_typedeps_reverse_treedef, &gv->typedeps_reverse);
 #endif
   ddsrt_mutex_init (&gv->new_topic_lock);
   ddsrt_cond_init (&gv->new_topic_cond);
@@ -1534,11 +1526,14 @@ int rtps_init (struct ddsi_domaingv *gv)
   ddsrt_mutex_init (&gv->participant_set_lock);
   ddsrt_cond_init (&gv->participant_set_cond);
   lease_management_init (gv);
-  gv->deleted_participants = deleted_participants_admin_new (&gv->logconfig, gv->config.prune_deleted_ppant.delay);
+  gv->deleted_participants = ddsi_deleted_participants_admin_new (&gv->logconfig, gv->config.prune_deleted_ppant.delay);
   gv->entity_index = entity_index_new (gv);
 
   ddsrt_mutex_init (&gv->privileged_pp_lock);
   gv->privileged_pp = NULL;
+
+  ddsrt_mutex_init(&gv->naming_lock);
+  ddsrt_prng_init(&gv->naming_rng, &gv->config.entity_naming_seed);
 
   /* Base participant GUID.  IID initialisation should be from a really good random
      generator and yield almost-unique numbers, and with a fallback of using process
@@ -1856,15 +1851,6 @@ int rtps_init (struct ddsi_domaingv *gv)
   {
     add_peer_addresses (gv, gv->as_disc, gv->config.peers);
   }
-  if (gv->config.peers_group)
-  {
-    gv->as_disc_group = new_addrset ();
-    add_peer_addresses (gv, gv->as_disc_group, gv->config.peers_group);
-  }
-  else
-  {
-    gv->as_disc_group = NULL;
-  }
 
   gv->gcreq_queue = gcreq_queue_new (gv);
 
@@ -1913,9 +1899,11 @@ err_unicast_sockets:
   ddsrt_mutex_destroy (&gv->spdp_lock);
   ddsrt_mutex_destroy (&gv->lock);
   ddsrt_mutex_destroy (&gv->privileged_pp_lock);
+  ddsrt_mutex_destroy (&gv->naming_lock);
+
   entity_index_free (gv->entity_index);
   gv->entity_index = NULL;
-  deleted_participants_admin_free (gv->deleted_participants);
+  ddsi_deleted_participants_admin_free (gv->deleted_participants);
   lease_management_term (gv);
   ddsrt_cond_destroy (&gv->participant_set_cond);
   ddsrt_mutex_destroy (&gv->participant_set_lock);
@@ -1936,6 +1924,8 @@ err_unicast_sockets:
   ddsrt_cond_destroy (&gv->new_topic_cond);
 #ifdef DDS_HAS_TYPE_DISCOVERY
   ddsrt_avl_free (&ddsi_typelib_treedef, &gv->typelib, 0);
+  ddsrt_avl_free (&ddsi_typedeps_treedef, &gv->typedeps, 0);
+  ddsrt_avl_free (&ddsi_typedeps_reverse_treedef, &gv->typedeps_reverse, 0);
   ddsrt_mutex_destroy (&gv->typelib_lock);
   ddsrt_cond_destroy (&gv->typelib_resolved_cond);
 #endif
@@ -2040,6 +2030,15 @@ int rtps_start (struct ddsi_domaingv *gv)
       rtps_stop (gv);
       return -1;
     }
+    else {
+      ddsi_locator_t loc;
+      char buf[DDSI_LOCSTRLEN];
+
+      if (get_debug_monitor_locator(gv->debmon, &loc)) {
+        ddsi_xqos_add_property_if_unset(&gv->default_local_plist_pp.qos, true, DDS_BUILTIN_TOPIC_PARTICIPANT_DEBUG_MONITOR,
+          ddsi_locator_to_string (buf, sizeof(buf), &loc));
+      }
+    }
   }
 
   return 0;
@@ -2062,7 +2061,7 @@ static void builtins_dqueue_ready_cb (void *varg)
 
 void rtps_stop (struct ddsi_domaingv *gv)
 {
-  struct thread_state1 * const ts1 = lookup_thread_state ();
+  struct thread_state * const thrst = lookup_thread_state ();
 
 #ifdef DDS_HAS_NETWORK_CHANNELS
   struct ddsi_config_channel_listelem * chptr;
@@ -2113,73 +2112,72 @@ void rtps_stop (struct ddsi_domaingv *gv)
   }
 
   /* Once the receive threads have stopped, defragmentation and
-     reorder state can't change anymore, and can be freed safely. */
-  nn_reorder_free (gv->spdp_reorder);
-  nn_defrag_free (gv->spdp_defrag);
-  ddsrt_mutex_destroy (&gv->spdp_lock);
+     reorder state can't change anymore, and can be freed safely.
+     We don't do that here because it means rtps_init/rtps_fini
+     allow will leak it. */
 
   {
     struct entidx_enum_proxy_participant est;
-    struct proxy_participant *proxypp;
+    struct ddsi_proxy_participant *proxypp;
     const ddsrt_wctime_t tnow = ddsrt_time_wallclock();
     /* Clean up proxy readers, proxy writers and proxy
        participants. Deleting a proxy participants deletes all its
        readers and writers automatically */
-    thread_state_awake (ts1, gv);
+    thread_state_awake (thrst, gv);
     entidx_enum_proxy_participant_init (&est, gv->entity_index);
     while ((proxypp = entidx_enum_proxy_participant_next (&est)) != NULL)
     {
-      delete_proxy_participant_by_guid (gv, &proxypp->e.guid, tnow, 1);
+      ddsi_delete_proxy_participant_by_guid (gv, &proxypp->e.guid, tnow, 1);
     }
     entidx_enum_proxy_participant_fini (&est);
-    thread_state_asleep (ts1);
+    thread_state_asleep (thrst);
   }
 
   {
     struct entidx_enum_writer est_wr;
     struct entidx_enum_reader est_rd;
     struct entidx_enum_participant est_pp;
-    struct participant *pp;
-    struct writer *wr;
-    struct reader *rd;
+    struct ddsi_participant *pp;
+    struct ddsi_writer *wr;
+    struct ddsi_reader *rd;
     /* Delete readers, writers and participants, relying on
        delete_participant to schedule the deletion of the built-in
        rwriters to get all SEDP and SPDP dispose+unregister messages
        out. FIXME: need to keep xevent thread alive for a while
        longer. */
-    thread_state_awake (ts1, gv);
+    thread_state_awake (thrst, gv);
     entidx_enum_writer_init (&est_wr, gv->entity_index);
     while ((wr = entidx_enum_writer_next (&est_wr)) != NULL)
     {
-      if (!is_builtin_entityid (wr->e.guid.entityid, NN_VENDORID_ECLIPSE))
-        delete_writer_nolinger (gv, &wr->e.guid);
+      if (!ddsi_is_builtin_entityid (wr->e.guid.entityid, NN_VENDORID_ECLIPSE))
+        ddsi_delete_writer_nolinger (gv, &wr->e.guid);
     }
     entidx_enum_writer_fini (&est_wr);
-    thread_state_awake_to_awake_no_nest (ts1);
+    thread_state_awake_to_awake_no_nest (thrst);
     entidx_enum_reader_init (&est_rd, gv->entity_index);
     while ((rd = entidx_enum_reader_next (&est_rd)) != NULL)
     {
-      if (!is_builtin_entityid (rd->e.guid.entityid, NN_VENDORID_ECLIPSE))
-        delete_reader (gv, &rd->e.guid);
+      if (!ddsi_is_builtin_entityid (rd->e.guid.entityid, NN_VENDORID_ECLIPSE))
+        ddsi_delete_reader (gv, &rd->e.guid);
     }
     entidx_enum_reader_fini (&est_rd);
-    thread_state_awake_to_awake_no_nest (ts1);
+    thread_state_awake_to_awake_no_nest (thrst);
 #ifdef DDS_HAS_TOPIC_DISCOVERY
     struct entidx_enum_topic est_tp;
-    struct topic *tp;
+    struct ddsi_topic *tp;
     entidx_enum_topic_init (&est_tp, gv->entity_index);
     while ((tp = entidx_enum_topic_next (&est_tp)) != NULL)
-      delete_topic (gv, &tp->e.guid);
+      ddsi_delete_topic (gv, &tp->e.guid);
     entidx_enum_topic_fini (&est_tp);
-    thread_state_awake_to_awake_no_nest (ts1);
+    thread_state_awake_to_awake_no_nest (thrst);
 #endif
     entidx_enum_participant_init (&est_pp, gv->entity_index);
     while ((pp = entidx_enum_participant_next (&est_pp)) != NULL)
     {
-      delete_participant (gv, &pp->e.guid);
+      ddsi_delete_participant (gv, &pp->e.guid);
     }
     entidx_enum_participant_fini (&est_pp);
-    thread_state_asleep (ts1);
+    thread_state_asleep (thrst);
   }
 
   /* Stop background (handshake) processing in security implementation,
@@ -2209,6 +2207,13 @@ void rtps_stop (struct ddsi_domaingv *gv)
 
 void rtps_fini (struct ddsi_domaingv *gv)
 {
+  /* The receive threads have already been stopped, therefore
+     defragmentation and reorder state can't change anymore and
+     can be freed. */
+  nn_reorder_free (gv->spdp_reorder);
+  nn_defrag_free (gv->spdp_defrag);
+  ddsrt_mutex_destroy (&gv->spdp_lock);
+
   /* Shut down the GC system -- no new requests will be added */
   gcreq_queue_free (gv->gcreq_queue);
 
@@ -2277,7 +2282,6 @@ void rtps_fini (struct ddsi_domaingv *gv)
     free_config_networkpartition_addresses (np);
 #endif
   unref_addrset (gv->as_disc);
-  unref_addrset (gv->as_disc_group);
 
   /* Must delay freeing of rbufpools until after *all* references have
      been dropped, which only happens once all receive threads have
@@ -2293,11 +2297,13 @@ void rtps_fini (struct ddsi_domaingv *gv)
   ddsi_tkmap_free (gv->m_tkmap);
   entity_index_free (gv->entity_index);
   gv->entity_index = NULL;
-  deleted_participants_admin_free (gv->deleted_participants);
+  ddsi_deleted_participants_admin_free (gv->deleted_participants);
   lease_management_term (gv);
   ddsrt_mutex_destroy (&gv->participant_set_lock);
   ddsrt_cond_destroy (&gv->participant_set_cond);
   free_special_types (gv);
+
+  ddsrt_mutex_destroy(&gv->naming_lock);
 
 #ifdef DDS_HAS_TOPIC_DISCOVERY
 #ifndef NDEBUG
@@ -2313,9 +2319,13 @@ void rtps_fini (struct ddsi_domaingv *gv)
 #ifndef NDEBUG
   {
     assert(ddsrt_avl_is_empty(&gv->typelib));
+    assert(ddsrt_avl_is_empty(&gv->typedeps));
+    assert(ddsrt_avl_is_empty(&gv->typedeps_reverse));
   }
 #endif
   ddsrt_avl_free (&ddsi_typelib_treedef, &gv->typelib, 0);
+  ddsrt_avl_free (&ddsi_typedeps_treedef, &gv->typedeps, 0);
+  ddsrt_avl_free (&ddsi_typedeps_reverse_treedef, &gv->typedeps_reverse, 0);
   ddsrt_mutex_destroy (&gv->typelib_lock);
 #endif /* DDS_HAS_TYPE_DISCOVERY */
 #ifndef NDEBUG

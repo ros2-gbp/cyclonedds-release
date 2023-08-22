@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -17,7 +17,9 @@
 
 #include "dds/version.h"
 #include "dds__entity.h"
-#include "dds/ddsi/q_entity.h"
+#include "dds/ddsi/ddsi_entity.h"
+#include "dds/ddsi/ddsi_entity_match.h"
+#include "dds/ddsi/ddsi_endpoint.h"
 #include "dds/ddsi/ddsi_serdata.h"
 #include "dds/ddsi/ddsi_entity_index.h"
 #include "dds/ddsrt/cdtors.h"
@@ -81,7 +83,7 @@ static const dds_topic_descriptor_t type_seq_desc =
 {
   .m_size = sizeof (struct type_seq),
   .m_align = sizeof (void *),
-  .m_flagset = DDS_TOPIC_NO_OPTIMIZE,
+  .m_flagset = 0u,
   .m_nkeys = 0,
   .m_typename = "multi_sertype_type",
   .m_keys = NULL,
@@ -97,7 +99,7 @@ static const dds_topic_descriptor_t type_ary_desc =
 {
   .m_size = sizeof (struct type_ary),
   .m_align = 4u,
-  .m_flagset = DDS_TOPIC_NO_OPTIMIZE,
+  .m_flagset = 0u,
   .m_nkeys = 0,
   .m_typename = "multi_sertype_type",
   .m_keys = NULL,
@@ -113,7 +115,7 @@ static const dds_topic_descriptor_t type_uni_desc =
 {
   .m_size = sizeof (struct type_uni),
   .m_align = sizeof (void *),
-  .m_flagset = DDS_TOPIC_NO_OPTIMIZE | DDS_TOPIC_CONTAINS_UNION,
+  .m_flagset = DDS_TOPIC_CONTAINS_UNION,
   .m_nkeys = 0,
   .m_typename = "multi_sertype_type",
   .m_keys = NULL,
@@ -144,7 +146,7 @@ static const dds_topic_descriptor_t type_ary1_desc =
 {
   .m_size = sizeof (struct type_ary),
   .m_align = 1u,
-  .m_flagset = DDS_TOPIC_NO_OPTIMIZE,
+  .m_flagset = 0u,
   .m_nkeys = 0,
   .m_typename = "multi_sertype_type",
   .m_keys = NULL,
@@ -160,7 +162,7 @@ static const dds_topic_descriptor_t type_ary2_desc =
 {
   .m_size = sizeof (struct type_ary),
   .m_align = 2u,
-  .m_flagset = DDS_TOPIC_NO_OPTIMIZE,
+  .m_flagset = 0u,
   .m_nkeys = 0,
   .m_typename = "multi_sertype_type",
   .m_keys = NULL,
@@ -250,19 +252,19 @@ static void waitfor_or_reset_fastpath (dds_entity_t rdhandle, bool fastpath, siz
   CU_ASSERT_FATAL (rc == DDS_RETCODE_OK);
   CU_ASSERT_FATAL (dds_entity_kind (x) == DDS_KIND_READER);
 
-  struct reader * const rd = ((struct dds_reader *) x)->m_rd;
-  struct rd_pwr_match *m;
+  struct ddsi_reader * const rd = ((struct dds_reader *) x)->m_rd;
+  struct ddsi_rd_pwr_match *m;
   ddsi_guid_t cursor;
   size_t wrcount = 0;
   thread_state_awake (lookup_thread_state (), rd->e.gv);
   ddsrt_mutex_lock (&rd->e.lock);
 
   memset (&cursor, 0, sizeof (cursor));
-  while ((m = ddsrt_avl_lookup_succ (&rd_writers_treedef, &rd->writers, &cursor)) != NULL)
+  while ((m = ddsrt_avl_lookup_succ (&ddsi_rd_writers_treedef, &rd->writers, &cursor)) != NULL)
   {
     cursor = m->pwr_guid;
     ddsrt_mutex_unlock (&rd->e.lock);
-    struct proxy_writer * const pwr = entidx_lookup_proxy_writer_guid (rd->e.gv->entity_index, &cursor);
+    struct ddsi_proxy_writer * const pwr = entidx_lookup_proxy_writer_guid (rd->e.gv->entity_index, &cursor);
     ddsrt_mutex_lock (&pwr->rdary.rdary_lock);
     if (!fastpath)
       pwr->rdary.fastpath_ok = false;
@@ -281,11 +283,11 @@ static void waitfor_or_reset_fastpath (dds_entity_t rdhandle, bool fastpath, siz
   }
 
   memset (&cursor, 0, sizeof (cursor));
-  while ((m = ddsrt_avl_lookup_succ (&rd_local_writers_treedef, &rd->local_writers, &cursor)) != NULL)
+  while ((m = ddsrt_avl_lookup_succ (&ddsi_rd_local_writers_treedef, &rd->local_writers, &cursor)) != NULL)
   {
     cursor = m->pwr_guid;
     ddsrt_mutex_unlock (&rd->e.lock);
-    struct writer * const wr = entidx_lookup_writer_guid (rd->e.gv->entity_index, &cursor);
+    struct ddsi_writer * const wr = entidx_lookup_writer_guid (rd->e.gv->entity_index, &cursor);
     ddsrt_mutex_lock (&wr->rdary.rdary_lock);
     if (!fastpath)
       wr->rdary.fastpath_ok = fastpath;

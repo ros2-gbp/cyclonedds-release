@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -18,7 +18,7 @@
 #include "dds__writer.h"
 #include "dds__qos.h"
 #include "dds/ddsi/ddsi_iid.h"
-#include "dds/ddsi/q_entity.h"
+#include "dds/ddsi/ddsi_entity.h"
 #include "dds/ddsi/ddsi_domaingv.h"
 #include "dds/version.h"
 
@@ -59,6 +59,8 @@ dds_entity_t dds__create_publisher_l (dds_participant *par, bool implicit, const
   if (qos)
     ddsi_xqos_mergein_missing (new_qos, qos, DDS_PUBLISHER_QOS_MASK);
   ddsi_xqos_mergein_missing (new_qos, &ddsi_default_qos_publisher_subscriber, ~(uint64_t)0);
+  dds_apply_entity_naming(new_qos, par->m_entity.m_qos, &par->m_entity.m_domain->gv);
+
   if ((ret = ddsi_xqos_valid (&par->m_entity.m_domain->gv.logconfig, new_qos)) != DDS_RETCODE_OK)
   {
     dds_delete_qos (new_qos);
@@ -116,7 +118,7 @@ dds_return_t dds_wait_for_acks (dds_entity_t publisher_or_writer, dds_duration_t
       return DDS_RETCODE_UNSUPPORTED;
 
     case DDS_KIND_WRITER:
-      ret = dds__writer_wait_for_acks ((struct dds_writer *) p_or_w_ent, NULL, abstimeout);
+      ret = dds__ddsi_writer_wait_for_acks ((struct dds_writer *) p_or_w_ent, NULL, abstimeout);
       dds_entity_unpin (p_or_w_ent);
       return ret;
 
