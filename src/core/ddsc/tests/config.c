@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2021 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -322,8 +322,8 @@ CU_Test(ddsc_security_qos, empty, .init = ddsrt_init, .fini = ddsrt_fini)
      support for it. */
   const char *log_expected[] = {
 #ifdef DDS_HAS_SECURITY
-    "new_participant(*): using security settings from QoS*",
-    "new_participant(*): required security property * missing*",
+    "ddsi_new_participant(*): using security settings from QoS*",
+    "ddsi_new_participant(*): required security property * missing*",
 #endif
     NULL
   };

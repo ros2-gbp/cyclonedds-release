@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2021 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -511,6 +511,13 @@ typedef union Submessage {
 #define DDS_BUILTIN_TOPIC_PARTICIPANT_MESSAGE_SECURE_NAME "DCPSParticipantMessageSecure"
 #define DDS_BUILTIN_TOPIC_PARTICIPANT_STATELESS_MESSAGE_NAME "DCPSParticipantStatelessMessage"
 #define DDS_BUILTIN_TOPIC_PARTICIPANT_VOLATILE_MESSAGE_SECURE_NAME "DCPSParticipantVolatileMessageSecure"
+
+/* Participant built-in topic qos properties */
+#define DDS_BUILTIN_TOPIC_PARTICIPANT_PROPERTY_PROCESS_NAME "__ProcessName"
+#define DDS_BUILTIN_TOPIC_PARTICIPANT_PROPERTY_PID "__Pid"
+#define DDS_BUILTIN_TOPIC_PARTICIPANT_PROPERTY_HOSTNAME "__Hostname"
+#define DDS_BUILTIN_TOPIC_PARTICIPANT_PROPERTY_NETWORKADDRESSES "__NetworkAddresses"
+#define DDS_BUILTIN_TOPIC_PARTICIPANT_DEBUG_MONITOR "__DebugMonitor"
 #define DDS_BUILTIN_TOPIC_NULL_NAME NULL
 
 #if defined (__cplusplus)

@@ -1,5 +1,5 @@
 #
-# Copyright(c) 2021 ADLINK Technology Limited and others
+# Copyright(c) 2019 to 2021 ZettaScale Technology and others
 #
 # This program and the accompanying materials are made available under the
 # terms of the Eclipse Public License v. 2.0 which is available at
@@ -10,7 +10,7 @@
 # SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 #
 project(throughput LANGUAGES C)
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.16)
 
 if(NOT TARGET CycloneDDS::ddsc)
   # Find the CycloneDDS package.

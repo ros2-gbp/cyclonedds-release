@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -14,6 +14,8 @@
 #include "dds/ddsrt/atomics.h"
 #include "dds/ddsrt/process.h"
 #include "dds/ddsrt/threads.h"
+#include "dds/ddsi/ddsi_iid.h"
+#include "dds__entity.h"
 #include "test_util.h"
 
 void tprintf (const char *msg, ...)
@@ -34,4 +36,27 @@ char *create_unique_topic_name (const char *prefix, char *name, size_t size)
   const uint32_t nr = ddsrt_atomic_inc32_nv (&count);
   (void) snprintf (name, size, "%s%"PRIu32"_pid%" PRIdPID "_tid%" PRIdTID "", prefix, nr, pid, tid);
   return name;
+}
+
+struct ddsi_domaingv *get_domaingv (dds_entity_t handle)
+{
+  struct dds_entity *x;
+  dds_return_t ret = dds_entity_pin (handle, &x);
+  assert (ret == DDS_RETCODE_OK);
+  (void) ret;
+  struct ddsi_domaingv * const gv = &x->m_domain->gv;
+  dds_entity_unpin (x);
+  return gv;
+}
+
+void gen_test_guid (struct ddsi_domaingv *gv, ddsi_guid_t *guid, uint32_t entity_id)
+{
+  union { uint64_t u64; uint32_t u32[2]; } u;
+  u.u32[0] = gv->ppguid_base.prefix.u[1];
+  u.u32[1] = gv->ppguid_base.prefix.u[2];
+  u.u64 += ddsi_iid_gen ();
+  guid->prefix.u[0] = gv->ppguid_base.prefix.u[0];
+  guid->prefix.u[1] = u.u32[0];
+  guid->prefix.u[2] = u.u32[1];
+  guid->entityid.u = entity_id;
 }

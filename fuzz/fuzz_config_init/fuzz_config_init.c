@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2021 ADLINK Technology Limited and others
+ * Copyright(c) 2021 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -20,7 +20,7 @@
 #include "dds/ddsi/q_thread.h"
 #include "dds/ddsi/ddsi_config_impl.h"
 #include "dds/ddsi/ddsi_domaingv.h"
-#include "dds/ddsi/q_entity.h"
+#include "dds/ddsi/ddsi_entity.h"
 #include "dds/ddsi/q_radmin.h"
 #include "dds/ddsi/ddsi_plist.h"
 #include "dds/ddsi/q_transmit.h"
@@ -38,40 +38,19 @@
 #include "dds__whc.h"
 #include "dds__types.h"
 
-static struct cfgst *cfgst;
-static struct ddsi_domaingv gv;
-static struct ddsi_config cfg;
-static ddsi_tran_conn_t fakeconn;
-static ddsi_tran_factory_t fakenet;
-static struct thread_state1 *ts1;
-static struct nn_rbufpool *rbpool;
-// static struct ddsi_tkmap_instance *tk;
-
-static void null_log_sink(void *varg, const dds_log_data_t *msg)
-{
-    (void)varg;
-    (void)msg;
-}
-
-static ssize_t fakeconn_write(ddsi_tran_conn_t conn, const ddsi_locator_t *dst, size_t niov, const ddsrt_iovec_t *iov, uint32_t flags)
-{
-    return (ssize_t)niov;
-}
-
-static ssize_t fakeconn_read(ddsi_tran_conn_t conn, unsigned char *buf, size_t len, bool allow_spurious, ddsi_locator_t *srcloc)
-{
-    return (ssize_t)len;
-}
 
 int LLVMFuzzerTestOneInput(
     const uint8_t *data,
     size_t size)
 {
+    struct cfgst *cfgst;
+    struct ddsi_domaingv gv;
+
     if (!size)
         return EXIT_FAILURE;
 
     ddsi_iid_init();
-    thread_states_init(64);
+    thread_states_init();
 
     memset(&dds_global, 0, sizeof(dds_global));
     ddsrt_mutex_init(&dds_global.m_mutex);

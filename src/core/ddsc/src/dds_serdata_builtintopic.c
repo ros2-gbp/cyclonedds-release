@@ -1,6 +1,5 @@
 /*
- * Copyright(c) 2022 ZettaScale Technology
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -10,22 +9,31 @@
  *
  * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
  */
-#include <stddef.h>
 #include <ctype.h>
+#include <stddef.h>
 #include <assert.h>
 #include <string.h>
 
+#include "dds/ddsrt/string.h"
 #include "dds/ddsrt/heap.h"
 #include "dds/ddsrt/md5.h"
-#include "dds/ddsi/q_bswap.h"
-#include "dds/ddsi/ddsi_config_impl.h"
-#include "dds/ddsi/q_freelist.h"
+
+#include "dds/ddsi/ddsi_xqos.h"
 #include "dds/ddsi/ddsi_plist.h"
-#include "dds/ddsi/ddsi_domaingv.h"
-#include "dds__serdata_builtintopic.h"
 #include "dds/ddsi/ddsi_tkmap.h"
-#include "dds/ddsi/q_entity.h"
+#include "dds/ddsi/ddsi_domaingv.h"
+#include "dds/ddsi/ddsi_config_impl.h"
 #include "dds/ddsi/ddsi_entity_index.h"
+
+#include "dds/ddsi/q_bswap.h"
+#include "dds/ddsi/ddsi_entity.h"
+#include "dds/ddsi/ddsi_participant.h"
+#include "dds/ddsi/ddsi_proxy_participant.h"
+#include "dds/ddsi/q_addrset.h"
+#include "dds/ddsi/q_freelist.h"
+
+#include "dds__serdata_builtintopic.h"
+
 
 static const uint64_t unihashconsts[] = {
   UINT64_C (16292676669999574021),
@@ -100,6 +108,57 @@ static struct ddsi_serdata_builtintopic *serdata_builtin_new(const struct ddsi_s
   return d;
 }
 
+struct format_address_arg {
+  char *buf;
+  size_t buf_pos;
+  size_t buf_size;
+  bool first;
+};
+
+static void format_address (const ddsi_xlocator_t *n, void *varg)
+{
+  struct format_address_arg *arg = varg;
+  char buf[DDSI_LOCSTRLEN];
+
+  if (!arg->buf) return;
+
+  ddsi_xlocator_to_string (buf, sizeof(buf), n);
+  const size_t nsize = strlen(buf) + (arg->first ? 0 : 1);
+
+  if (nsize > arg->buf_size - arg->buf_pos - 1) {
+    arg->buf_size += 4 * nsize;
+    char * new_buffer = ddsrt_realloc(arg->buf, arg->buf_size);
+
+    if (!new_buffer) return;
+    arg->buf = new_buffer;
+  }
+
+  arg->buf_pos += (size_t) snprintf (arg->buf + arg->buf_pos, arg->buf_size - arg->buf_pos, "%s%s", arg->first ? "" : ",", buf);
+  if (arg->first)
+    arg->first = false;
+}
+
+static char * format_addrset (struct addrset *as)
+{
+  struct format_address_arg pa_arg;
+  pa_arg.buf = (char*) ddsrt_malloc(DDSI_LOCSTRLEN * 3 + 4);
+  pa_arg.buf_pos = 0;
+  pa_arg.buf_size = DDSI_LOCSTRLEN * 3 + 4;
+  pa_arg.first = true;
+
+  addrset_forall(as, format_address, &pa_arg);
+  return pa_arg.buf;
+}
+
+static void add_pp_addresses_to_xqos(dds_qos_t *q, const struct ddsi_proxy_participant *proxypp)
+{
+  char * addresses = format_addrset(proxypp->as_meta);
+  if (addresses) {
+    ddsi_xqos_add_property_if_unset(q, true, DDS_BUILTIN_TOPIC_PARTICIPANT_PROPERTY_NETWORKADDRESSES, addresses);
+    ddsrt_free(addresses);
+  }
+}
+
 static void translate_pp_lease_duration (dds_qos_t *qos, const ddsi_plist_t *plist)
 {
   // Participant lease duration doesn't play by the rules because it doesn't officially exist as a QoS
@@ -110,16 +169,18 @@ static void translate_pp_lease_duration (dds_qos_t *qos, const ddsi_plist_t *pli
   qos->liveliness.lease_duration = plist->participant_lease_duration;
 }
 
-static void from_entity_pp (struct ddsi_serdata_builtintopic_participant *d, const struct participant *pp)
+static void from_entity_pp (struct ddsi_serdata_builtintopic_participant *d, const struct ddsi_participant *pp)
 {
   ddsi_xqos_copy(&d->common.xqos, &pp->plist->qos);
+  ddsi_xqos_add_property_if_unset(&d->common.xqos, true, DDS_BUILTIN_TOPIC_PARTICIPANT_PROPERTY_NETWORKADDRESSES, "localprocess");
   d->pphandle = pp->e.iid;
   translate_pp_lease_duration (&d->common.xqos, pp->plist);
 }
 
-static void from_entity_proxypp (struct ddsi_serdata_builtintopic_participant *d, const struct proxy_participant *proxypp)
+static void from_entity_proxypp (struct ddsi_serdata_builtintopic_participant *d, const struct ddsi_proxy_participant *proxypp)
 {
   ddsi_xqos_copy(&d->common.xqos, &proxypp->plist->qos);
+  add_pp_addresses_to_xqos(&d->common.xqos, proxypp);
   d->pphandle = proxypp->e.iid;
   translate_pp_lease_duration (&d->common.xqos, proxypp->plist);
 }
@@ -131,35 +192,35 @@ static void from_qos (struct ddsi_serdata_builtintopic *d, const dds_qos_t *xqos
   assert (d->xqos.present & QP_TYPE_NAME);
 }
 
-static void from_entity_rd (struct ddsi_serdata_builtintopic_endpoint *d, const struct reader *rd)
+static void from_entity_rd (struct ddsi_serdata_builtintopic_endpoint *d, const struct ddsi_reader *rd)
 {
   d->pphandle = rd->c.pp->e.iid;
   from_qos (&d->common, rd->xqos);
 }
 
-static void from_entity_wr (struct ddsi_serdata_builtintopic_endpoint *d, const struct writer *wr)
+static void from_entity_wr (struct ddsi_serdata_builtintopic_endpoint *d, const struct ddsi_writer *wr)
 {
   d->pphandle = wr->c.pp->e.iid;
   from_qos (&d->common, wr->xqos);
 }
 
-static void from_proxy_endpoint_common (struct ddsi_serdata_builtintopic_endpoint *d, const struct proxy_endpoint_common *pec)
+static void from_proxy_endpoint_common (struct ddsi_serdata_builtintopic_endpoint *d, const struct ddsi_proxy_endpoint_common *pec)
 {
   d->pphandle = pec->proxypp->e.iid;
   from_qos (&d->common, pec->xqos);
 }
 
-static void from_entity_proxy_rd (struct ddsi_serdata_builtintopic_endpoint *d, const struct proxy_reader *proxyrd)
+static void from_entity_proxy_rd (struct ddsi_serdata_builtintopic_endpoint *d, const struct ddsi_proxy_reader *proxyrd)
 {
   from_proxy_endpoint_common (d, &proxyrd->c);
 }
 
-static void from_entity_proxy_wr (struct ddsi_serdata_builtintopic_endpoint *d, const struct proxy_writer *proxywr)
+static void from_entity_proxy_wr (struct ddsi_serdata_builtintopic_endpoint *d, const struct ddsi_proxy_writer *proxywr)
 {
   from_proxy_endpoint_common (d, &proxywr->c);
 }
 
-struct ddsi_serdata *dds_serdata_builtin_from_endpoint (const struct ddsi_sertype *tpcmn, const ddsi_guid_t *guid, struct entity_common *entity, enum ddsi_serdata_kind kind)
+struct ddsi_serdata *dds_serdata_builtin_from_endpoint (const struct ddsi_sertype *tpcmn, const ddsi_guid_t *guid, struct ddsi_entity_common *entity, enum ddsi_serdata_kind kind)
 {
   const struct ddsi_sertype_builtintopic *tp = (const struct ddsi_sertype_builtintopic *)tpcmn;
   assert (tp->entity_kind != DSBT_TOPIC);
@@ -170,31 +231,31 @@ struct ddsi_serdata *dds_serdata_builtin_from_endpoint (const struct ddsi_sertyp
     ddsrt_mutex_lock (&entity->qos_lock);
     switch (entity->kind)
     {
-      case EK_PARTICIPANT:
+      case DDSI_EK_PARTICIPANT:
         assert (tp->entity_kind == DSBT_PARTICIPANT);
-        from_entity_pp ((struct ddsi_serdata_builtintopic_participant *) d, (const struct participant *) entity);
+        from_entity_pp ((struct ddsi_serdata_builtintopic_participant *) d, (const struct ddsi_participant *) entity);
         break;
-      case EK_READER:
+      case DDSI_EK_READER:
         assert (tp->entity_kind == DSBT_READER);
-        from_entity_rd ((struct ddsi_serdata_builtintopic_endpoint *) d, (const struct reader *) entity);
+        from_entity_rd ((struct ddsi_serdata_builtintopic_endpoint *) d, (const struct ddsi_reader *) entity);
         break;
-      case EK_WRITER:
+      case DDSI_EK_WRITER:
         assert (tp->entity_kind == DSBT_WRITER);
-        from_entity_wr ((struct ddsi_serdata_builtintopic_endpoint *) d, (const struct writer *) entity);
+        from_entity_wr ((struct ddsi_serdata_builtintopic_endpoint *) d, (const struct ddsi_writer *) entity);
         break;
-      case EK_PROXY_PARTICIPANT:
+      case DDSI_EK_PROXY_PARTICIPANT:
         assert (tp->entity_kind == DSBT_PARTICIPANT);
-        from_entity_proxypp ((struct ddsi_serdata_builtintopic_participant *) d, (const struct proxy_participant *) entity);
+        from_entity_proxypp ((struct ddsi_serdata_builtintopic_participant *) d, (const struct ddsi_proxy_participant *) entity);
         break;
-      case EK_PROXY_READER:
+      case DDSI_EK_PROXY_READER:
         assert (tp->entity_kind == DSBT_READER);
-        from_entity_proxy_rd ((struct ddsi_serdata_builtintopic_endpoint *) d, (const struct proxy_reader *) entity);
+        from_entity_proxy_rd ((struct ddsi_serdata_builtintopic_endpoint *) d, (const struct ddsi_proxy_reader *) entity);
         break;
-      case EK_PROXY_WRITER:
+      case DDSI_EK_PROXY_WRITER:
         assert (tp->entity_kind == DSBT_WRITER);
-        from_entity_proxy_wr ((struct ddsi_serdata_builtintopic_endpoint *) d, (const struct proxy_writer *) entity);
+        from_entity_proxy_wr ((struct ddsi_serdata_builtintopic_endpoint *) d, (const struct ddsi_proxy_writer *) entity);
         break;
-      case EK_TOPIC:
+      case DDSI_EK_TOPIC:
         abort ();
         break;
     }
@@ -242,7 +303,7 @@ static struct ddsi_serdata *ddsi_serdata_builtin_from_sample (const struct ddsi_
   }
   struct ddsi_domaingv * const gv = ddsrt_atomic_ldvoidp (&tp->c.gv);
   x.guid = nn_ntoh_guid (x.guid);
-  struct entity_common *entity = entidx_lookup_guid_untyped (gv->entity_index, &x.guid);
+  struct ddsi_entity_common *entity = entidx_lookup_guid_untyped (gv->entity_index, &x.guid);
   return dds_serdata_builtin_from_endpoint (tpcmn, &x.guid, entity, kind);
 }
 

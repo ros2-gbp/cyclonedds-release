@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2021 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -54,6 +54,18 @@ extern "C" {
  */
 DDS_EXPORT ddsrt_pid_t
 ddsrt_getpid(void);
+
+/**
+ * @brief Return process name of the calling process.
+ *
+ * On linux maps to /proc/self/cmdline's first entry (argv[0]),
+ * on mac/windows maps to relevant API calls. Falls back to process-{pid}
+ * on failure.
+ *
+ * @returns The process name of the calling process.
+ */
+DDS_EXPORT char *
+ddsrt_getprocessname(void);
 
 #if defined (__cplusplus)
 }

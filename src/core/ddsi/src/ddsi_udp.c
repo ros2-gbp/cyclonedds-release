@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -65,34 +65,28 @@ static ssize_t ddsi_udp_conn_read (ddsi_tran_conn_t conn_cmn, unsigned char * bu
 {
   ddsi_udp_conn_t conn = (ddsi_udp_conn_t) conn_cmn;
   struct ddsi_domaingv * const gv = conn->m_base.m_base.gv;
-  dds_return_t rc;
-  ssize_t ret = 0;
-  ddsrt_msghdr_t msghdr;
   union addr src;
-  ddsrt_iovec_t msg_iov;
-  socklen_t srclen = (socklen_t) sizeof (src);
+  ddsrt_iovec_t msg_iov = {
+    .iov_base = (void *) buf,
+    .iov_len = (ddsrt_iov_len_t) len /* Windows uses unsigned, POSIX (except Linux) int */
+  };
+  ddsrt_msghdr_t msghdr = {
+    .msg_name = &src.x,
+    .msg_namelen = (socklen_t) sizeof (src),
+    .msg_iov = &msg_iov,
+    .msg_iovlen = 1
+    // accrights/control implicitly initialised to 0
+    // msg_flags is an out parameter anyway
+  };
   (void) allow_spurious;
 
-  msg_iov.iov_base = (void *) buf;
-  msg_iov.iov_len = (ddsrt_iov_len_t) len; /* Windows uses unsigned, POSIX (except Linux) int */
-
-  msghdr.msg_name = &src.x;
-  msghdr.msg_namelen = srclen;
-  msghdr.msg_iov = &msg_iov;
-  msghdr.msg_iovlen = 1;
-#if defined(__sun) && !defined(_XPG4_2)
-  msghdr.msg_accrights = NULL;
-  msghdr.msg_accrightslen = 0;
-#else
-  msghdr.msg_control = NULL;
-  msghdr.msg_controllen = 0;
-#endif
-
+  dds_return_t rc;
+  ssize_t nrecv = 0;
   do {
-    rc = ddsrt_recvmsg (conn->m_sock, &msghdr, 0, &ret);
+    rc = ddsrt_recvmsg (conn->m_sock, &msghdr, 0, &nrecv);
   } while (rc == DDS_RETCODE_INTERRUPTED);
 
-  if (ret > 0)
+  if (nrecv > 0)
   {
     if (srcloc)
       addr_to_loc (conn->m_base.m_factory, srcloc, &src);
@@ -103,7 +97,7 @@ static ssize_t ddsi_udp_conn_read (ddsi_tran_conn_t conn_cmn, unsigned char * bu
       socklen_t dest_len = sizeof (dest);
       if (ddsrt_getsockname (conn->m_sock, &dest.a, &dest_len) != DDS_RETCODE_OK)
         memset (&dest, 0, sizeof (dest));
-      write_pcap_received (gv, ddsrt_time_wallclock (), &src.x, &dest.x, buf, (size_t) ret);
+      write_pcap_received (gv, ddsrt_time_wallclock (), &src.x, &dest.x, buf, (size_t) nrecv);
     }
 
     /* Check for udp packet truncation */
@@ -112,27 +106,21 @@ static ssize_t ddsi_udp_conn_read (ddsi_tran_conn_t conn_cmn, unsigned char * bu
 #else
     const bool trunc_flag = false;
 #endif
-    if ((size_t) ret > len || trunc_flag)
+    if ((size_t) nrecv > len || trunc_flag)
     {
       char addrbuf[DDSI_LOCSTRLEN];
       ddsi_locator_t tmp;
       addr_to_loc (conn->m_base.m_factory, &tmp, &src);
       ddsi_locator_to_string (addrbuf, sizeof (addrbuf), &tmp);
-      GVWARNING ("%s => %d truncated to %d\n", addrbuf, (int) ret, (int) len);
+      GVWARNING ("%s => %d truncated to %d\n", addrbuf, (int) nrecv, (int) len);
     }
   }
   else if (rc != DDS_RETCODE_BAD_PARAMETER && rc != DDS_RETCODE_NO_CONNECTION)
   {
-    GVERROR ("UDP recvmsg sock %d: ret %d retcode %"PRId32"\n", (int) conn->m_sock, (int) ret, rc);
-    ret = -1;
+    GVERROR ("UDP recvmsg sock %d: ret %d retcode %"PRId32"\n", (int) conn->m_sock, (int) nrecv, rc);
+    nrecv = -1;
   }
-  return ret;
-}
-
-static void set_msghdr_iov (ddsrt_msghdr_t *mhdr, const ddsrt_iovec_t *iov, size_t iovlen)
-{
-  mhdr->msg_iov = (ddsrt_iovec_t *) iov;
-  mhdr->msg_iovlen = (ddsrt_msg_iovlen_t) iovlen;
+  return nrecv;
 }
 
 static ssize_t ddsi_udp_conn_write (ddsi_tran_conn_t conn_cmn, const ddsi_locator_t *dst, size_t niov, const ddsrt_iovec_t *iov, uint32_t flags)
@@ -140,56 +128,79 @@ static ssize_t ddsi_udp_conn_write (ddsi_tran_conn_t conn_cmn, const ddsi_locato
   ddsi_udp_conn_t conn = (ddsi_udp_conn_t) conn_cmn;
   struct ddsi_domaingv * const gv = conn->m_base.m_base.gv;
   dds_return_t rc;
-  ssize_t ret = -1;
+  ssize_t nsent = -1;
   unsigned retry = 2;
   int sendflags = 0;
-  ddsrt_msghdr_t msg;
+#if defined _WIN32 && !defined WINCE
+  ddsrt_mtime_t timeout = DDSRT_MTIME_NEVER;
+  ddsrt_mtime_t tnow = { 0 };
+#endif
   union addr dstaddr;
   assert (niov <= INT_MAX);
   ddsi_ipaddr_from_loc (&dstaddr.x, dst);
-  set_msghdr_iov (&msg, iov, niov);
-  msg.msg_name = &dstaddr.x;
-  msg.msg_namelen = (socklen_t) ddsrt_sockaddr_get_size (&dstaddr.a);
-#if defined(__sun) && !defined(_XPG4_2)
-  msg.msg_accrights = NULL;
-  msg.msg_accrightslen = 0;
-#else
-  msg.msg_control = NULL;
-  msg.msg_controllen = 0;
-#endif
+  ddsrt_msghdr_t msg = {
+    .msg_name = &dstaddr.x,
+    .msg_namelen = (socklen_t) ddsrt_sockaddr_get_size (&dstaddr.a),
+    .msg_iov = (ddsrt_iovec_t *) iov,
+    .msg_iovlen = (ddsrt_msg_iovlen_t) niov
 #if DDSRT_MSGHDR_FLAGS
-  msg.msg_flags = (int) flags;
-#else
-  DDSRT_UNUSED_ARG (flags);
+    , .msg_flags = (int) flags
 #endif
+    // accrights/control implicitly initialised to 0
+  };
+  (void) flags; // in case ! DDSRT_MSGHDR_FLAGS
+
 #if MSG_NOSIGNAL && !LWIP_SOCKET
   sendflags |= MSG_NOSIGNAL;
 #endif
-  do {
-    rc = ddsrt_sendmsg (conn->m_sock, &msg, sendflags, &ret);
-#if defined _WIN32 && !defined WINCE
-    if (rc == DDS_RETCODE_TRY_AGAIN)
+  rc = ddsrt_sendmsg (conn->m_sock, &msg, sendflags, &nsent);
+  if (rc != DDS_RETCODE_OK)
+  {
+    // IIRC, NOT_ALLOWED is something that spuriously happens on some old versions of Linux i.c.w. firewalls
+    // details never understood properly, but retrying a few times helped make it behave a bit better
+    //
+    // TRY_AGAIN should only occur on Windows because on Linux we can (and do) use blocking sockets.  It may
+    // be that currently the socket is also blocking on Windows, because we currently separate create sockets
+    // for transmitting data, but it would actually be preferable to go back to re-using the socket used for
+    // receiving unicast traffic if there is only a single network interface (less resource usage, easier
+    // for firewall configuration) and so it makes sense to keep the code.
+    while (rc == DDS_RETCODE_INTERRUPTED || rc == DDS_RETCODE_TRY_AGAIN || (rc == DDS_RETCODE_NOT_ALLOWED && retry-- > 0))
     {
-      WSANETWORKEVENTS ev;
-      WaitForSingleObject (conn->m_sockEvent, INFINITE);
-      WSAEnumNetworkEvents (conn->m_sock, conn->m_sockEvent, &ev);
-    }
+#if defined _WIN32 && !defined WINCE
+      if (rc == DDS_RETCODE_TRY_AGAIN)
+      {
+        // I've once seen a case where a passing INFINITE could cause WaitForSingleObject to block
+        // for hours on end on a functioning Ethernet.  That's definitely not what one would expect,
+        // the best guess is that it was a hardware or driver issue.  Better to drop the datagram
+        // after a little while, the upper layers allow for packet loss anyway.
+        tnow = ddsrt_time_monotonic ();
+        if (timeout.v == DDSRT_MTIME_NEVER.v)
+          timeout = ddsrt_mtime_add_duration (tnow, DDS_MSECS (100));
+        else if (tnow.v >= timeout.v)
+          break;
+        WSANETWORKEVENTS ev;
+        WaitForSingleObject (conn->m_sockEvent, 5);
+        WSAEnumNetworkEvents (conn->m_sock, conn->m_sockEvent, &ev);
+      }
 #endif
-  } while (rc == DDS_RETCODE_INTERRUPTED || rc == DDS_RETCODE_TRY_AGAIN || (rc == DDS_RETCODE_NOT_ALLOWED && retry-- > 0));
-  if (ret > 0 && gv->pcap_fp)
+      rc = ddsrt_sendmsg (conn->m_sock, &msg, sendflags, &nsent);
+    }
+  }
+
+  if (nsent > 0 && gv->pcap_fp)
   {
     union addr sa;
     socklen_t alen = sizeof (sa);
     if (ddsrt_getsockname (conn->m_sock, &sa.a, &alen) != DDS_RETCODE_OK)
       memset(&sa, 0, sizeof(sa));
-    write_pcap_sent (gv, ddsrt_time_wallclock (), &sa.x, &msg, (size_t) ret);
+    write_pcap_sent (gv, ddsrt_time_wallclock (), &sa.x, &msg, (size_t) nsent);
   }
   else if (rc != DDS_RETCODE_OK && rc != DDS_RETCODE_NOT_ALLOWED && rc != DDS_RETCODE_NO_CONNECTION)
   {
     char locbuf[DDSI_LOCSTRLEN];
     GVERROR ("ddsi_udp_conn_write to %s failed with retcode %"PRId32"\n", ddsi_locator_to_string (locbuf, sizeof (locbuf), dst), rc);
   }
-  return (rc == DDS_RETCODE_OK) ? ret : -1;
+  return (rc == DDS_RETCODE_OK) ? nsent : -1;
 }
 
 static void ddsi_udp_disable_multiplexing (ddsi_tran_conn_t conn_cmn)

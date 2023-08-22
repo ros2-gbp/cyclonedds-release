@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -133,7 +133,7 @@ void ddsi_conn_free (ddsi_tran_conn_t conn)
       {
         for (uint32_t i = 0; i < conn->m_base.gv->n_recv_threads; i++)
         {
-          if (!conn->m_base.gv->recv_threads[i].ts)
+          if (!conn->m_base.gv->recv_threads[i].thrst)
             assert (!ddsrt_atomic_ld32 (&conn->m_base.gv->rtps_keepgoing));
           else
           {

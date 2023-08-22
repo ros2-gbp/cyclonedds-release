@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2022 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -15,7 +15,7 @@
 #include "dds__subscriber.h"
 #include "dds__qos.h"
 #include "dds/ddsi/ddsi_iid.h"
-#include "dds/ddsi/q_entity.h"
+#include "dds/ddsi/ddsi_entity.h"
 #include "dds/ddsi/ddsi_domaingv.h"
 #include "dds/ddsrt/heap.h"
 #include "dds/version.h"
@@ -59,6 +59,8 @@ dds_entity_t dds__create_subscriber_l (dds_participant *participant, bool implic
   if (qos)
     ddsi_xqos_mergein_missing (new_qos, qos, DDS_SUBSCRIBER_QOS_MASK);
   ddsi_xqos_mergein_missing (new_qos, &ddsi_default_qos_publisher_subscriber, ~(uint64_t)0);
+  dds_apply_entity_naming(new_qos, participant->m_entity.m_qos, &participant->m_entity.m_domain->gv);
+
   if ((ret = ddsi_xqos_valid (&participant->m_entity.m_domain->gv.logconfig, new_qos)) != DDS_RETCODE_OK)
   {
     dds_delete_qos (new_qos);
@@ -110,7 +112,7 @@ bool dds_subscriber_compute_data_on_readers_locked (dds_subscriber *sub)
 {
   // sub->m_entity.m_mutex must be locked
   ddsrt_avl_iter_t it;
-  
+
   // Returning true when some reader has DATA_AVAILABLE set isn't the correct behaviour
   // because it doesn't reset the DATA_ON_READERS state on the first read/take on one of
   // the subscriber's readers.  It seems highly unlikely to be a problem in practice:
@@ -172,7 +174,7 @@ void dds_subscriber_adjust_materialize_data_on_readers (dds_subscriber *sub, boo
       if (x == rd) // FIXME: can this ever not be true?
       {
         ddsrt_mutex_unlock (&sub->m_entity.m_mutex);
-        
+
         ddsrt_mutex_lock (&x->m_observers_lock);
         ddsrt_mutex_lock (&sub->m_entity.m_observers_lock);
         if (sub->materialize_data_on_readers)
@@ -181,7 +183,7 @@ void dds_subscriber_adjust_materialize_data_on_readers (dds_subscriber *sub, boo
           ddsrt_atomic_and32 (&x->m_status.m_status_and_mask, ~(uint32_t)(DDS_DATA_ON_READERS_STATUS << SAM_ENABLED_SHIFT));
         ddsrt_mutex_unlock (&sub->m_entity.m_observers_lock);
         ddsrt_mutex_unlock (&x->m_observers_lock);
-        
+
         ddsrt_mutex_lock (&sub->m_entity.m_mutex);
       }
       dds_entity_unpin (x);

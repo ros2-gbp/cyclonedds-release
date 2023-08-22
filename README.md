@@ -1,8 +1,12 @@
+![GitHub release](https://img.shields.io/github/v/release/eclipse-cyclonedds/cyclonedds?include_prereleases)
 [![Build Status](https://dev.azure.com/eclipse-cyclonedds/cyclonedds/_apis/build/status/Pull%20requests?branchName=master)](https://dev.azure.com/eclipse-cyclonedds/cyclonedds/_build/latest?definitionId=4&branchName=master)
 [![Coverity Status](https://scan.coverity.com/projects/19078/badge.svg)](https://scan.coverity.com/projects/eclipse-cyclonedds-cyclonedds)
 [![Coverage](https://img.shields.io/azure-devops/coverage/eclipse-cyclonedds/cyclonedds/4/master)](https://dev.azure.com/eclipse-cyclonedds/cyclonedds/_build/latest?definitionId=4&branchName=master)
 [![License](https://img.shields.io/badge/License-EPL%202.0-blue)](https://choosealicense.com/licenses/epl-2.0/)
 [![License](https://img.shields.io/badge/License-EDL%201.0-blue)](https://choosealicense.com/licenses/edl-1.0/)
+[![Website](https://img.shields.io/badge/web-cyclonedds.io-blue)](https://cyclonedds.io)
+[![Community](https://img.shields.io/badge/discord-join%20community-5865f2)](https://discord.gg/BkRYQPpZVV)
+
 
 # Eclipse Cyclone DDS
 
@@ -109,7 +113,7 @@ In order to build Cyclone DDS you need a Linux, Mac or Windows 10 machine (or, w
 
   * C compiler (most commonly GCC on Linux, Visual Studio on Windows, Xcode on macOS);
   * Optionally GIT version control system;
-  * [CMake](https://cmake.org/download/), version 3.10 or later;
+  * [CMake](https://cmake.org/download/), version 3.16 or later;
   * Optionally [OpenSSL](https://www.openssl.org/), preferably version 1.1;
   * Optionally [Eclipse Iceoryx](https://iceoryx.io) version 2.0 for shared memory and zero-copy support;
   * Optionally [Bison](https://www.gnu.org/software/bison/) parser generator. A cached source is checked into the repository.
@@ -138,8 +142,8 @@ There are some configuration options specified using CMake defines in addition t
 * `-DENABLE_SECURITY=NO`: to not build the security interfaces and hooks in the core code, nor the plugins (one can enable security without OpenSSL present, you'll just have to find plugins elsewhere in that case)
 * `-DENABLE_LIFESPAN=NO`: to exclude support for finite lifespans QoS
 * `-DENABLE_DEADLINE_MISSED=NO`: to exclude support for finite deadline QoS settings
-* `-DENABLE_TYPE_DISCOVERY=YES`: to include support for type discovery and checking type compatibility (likely to become enabled by default in the future)
-* `-DENABLE_TOPIC_DISCOVERY=YES`: to include support for topic discovery (requires `-DENABLE_TYPE_DISCOVERY=YES`; somewhat likely to become enabled by default in the future)
+* `-DENABLE_TYPE_DISCOVERY=NO`: to exclude support for type discovery and checking type compatibility (effectively most of XTypes), requires also disabling topic discovery using `-DENABLE_TOPIC_DISCOVERY=NO`
+* `-DENABLE_TOPIC_DISCOVERY=NO`: to exclude support for topic discovery
 * `-DENABLE_SOURCE_SPECIFIC_MULTICAST=NO`: to disable support for source-specific multicast (disabling this and `-DENABLE_IPV6=NO` may be needed for QNX builds)
 * `-DENABLE_IPV6=NO`: to disable ipv6 support (disabling this and `-DENABLE_SOURCE_SPECIFIC_MULTICAST=NO` may be needed for QNX builds)
 
@@ -206,7 +210,7 @@ This will automatically download and/or build CUnit (and, at the moment, OpenSSL
 
 ## Documentation
 
-The [documentation](https://cyclonedds.io) is still rather limited and some parts of it are still only available in the form of text files in the `docs` directory.
+The [documentation](https://cyclonedds.io/docs) is still rather limited and some parts of it are still only available in the form of text files in the `docs` directory.
 This README is usually out-of-date and the state of the documentation is slowly improving, so it definitely worth hopping over to have a look.
 
 ## Building and Running the Roundtrip Example
@@ -278,6 +282,9 @@ E.g. (on Linux):
                 <AllowMulticast>default</AllowMulticast>
                 <MaxMessageSize>65500B</MaxMessageSize>
             </General>
+            <Discovery>
+                <EnableTopicDiscoveryEndpoints>true</EnableTopicDiscoveryEndpoints>
+            </Discovery>
             <Internal>
                 <Watermarks>
                     <WhcHigh>500kB</WhcHigh>
@@ -309,6 +316,7 @@ This example shows a few things:
   If the selected interface doesn't support it, it obviously won't be used (`false`); but if it does support it, the type of the network adapter determines the default value.
   For a wired network, it will use multicast for initial discovery as well as for data when there are multiple peers that the data needs to go to (`true`). 
   On a WiFi network it will use it only for initial discovery (`spdp`), because multicast on WiFi is very unreliable.
+* `EnableTopicDiscoveryEndpoints` turns on topic discovery (assuming it is enabled at compile time), it is disabled by default because it isn't used in many system and comes with a significant amount of overhead in discovery traffic.
 * `Verbosity` allows control over the tracing, "config" dumps the configuration to the trace output (which defaults to "cyclonedds.log", but here the process id is appended).
   Which interface is used, what multicast settings are used, etc., is all in the trace.
   Setting the verbosity to "finest" gives way more output on the inner workings, and there are various other levels as well.

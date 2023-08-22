@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2006 to 2018 ADLINK Technology Limited and others
+ * Copyright(c) 2006 to 2021 ZettaScale Technology and others
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -103,9 +103,9 @@ CU_Test(ddsc_topic_create, duplicate, .init = ddsc_topic_init, .fini = ddsc_topi
 
 CU_Test(ddsc_topic_create, same_name, .init = ddsc_topic_init, .fini = ddsc_topic_fini)
 {
-  /* Creating the different topic with same name should fail.  */
+  /* Creating the topic with same name and different type should succeed.  */
   dds_entity_t topic = dds_create_topic(g_participant, &RoundTripModule_Address_desc, g_topic_rtmdt_name, NULL, NULL);
-  CU_ASSERT_EQUAL_FATAL(topic, DDS_RETCODE_PRECONDITION_NOT_MET);
+  CU_ASSERT_FATAL(topic > 0);
 }
 
 CU_Test(ddsc_topic_create, recreate, .init = ddsc_topic_init, .fini = ddsc_topic_fini)
