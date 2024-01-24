@@ -1,0 +1,13 @@
+Source: ros-rolling-cyclonedds
+Section: misc
+Priority: optional
+Maintainer: Eclipse Foundation, Inc. <cyclonedds-dev@eclipse.org>
+Build-Depends: debhelper (>= 9.0.0), cmake, libssl-dev, ros-rolling-iceoryx-binding-c, ros-rolling-iceoryx-hoofs, ros-rolling-iceoryx-posh, ros-rolling-ros-workspace
+Homepage: https://projects.eclipse.org/projects/iot.cyclonedds
+Standards-Version: 3.9.2
+
+Package: ros-rolling-cyclonedds
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, openssl, ros-rolling-iceoryx-binding-c, ros-rolling-iceoryx-hoofs, ros-rolling-iceoryx-posh, ros-rolling-ros-workspace
+Description: Eclipse Cyclone DDS is a very performant and robust open-source DDS implementation.
+ Cyclone DDS is developed completely in the open as an Eclipse IoT project.
