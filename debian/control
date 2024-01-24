@@ -1,0 +1,13 @@
+Source: ros-humble-cyclonedds
+Section: misc
+Priority: optional
+Maintainer: Eclipse Foundation, Inc. <cyclonedds-dev@eclipse.org>
+Build-Depends: debhelper (>= 9.0.0), cmake, libssl-dev, ros-humble-iceoryx-binding-c, ros-humble-iceoryx-hoofs, ros-humble-iceoryx-posh, ros-humble-ros-workspace
+Homepage: https://projects.eclipse.org/projects/iot.cyclonedds
+Standards-Version: 3.9.2
+
+Package: ros-humble-cyclonedds
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, openssl, ros-humble-iceoryx-binding-c, ros-humble-iceoryx-hoofs, ros-humble-iceoryx-posh, ros-humble-ros-workspace
+Description: Eclipse Cyclone DDS is a very performant and robust open-source DDS implementation.
+ Cyclone DDS is developed completely in the open as an Eclipse IoT project.
