@@ -1,0 +1,24 @@
+From 1bfd96ba7c1736ab7e953cee2f27e451038567f3 Mon Sep 17 00:00:00 2001
+From: Shane Loretz <sloretz@openrobotics.org>
+Date: Mon, 21 Mar 2022 14:16:44 -0700
+Subject: [PATCH] Set APPEND_PROJECT_NAME_TO_INCLUDEDIR to ON
+
+---
+ debian/rules.em | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/debian/rules.em b/debian/rules.em
+index 284a07142d7a..36b9ccfcdf17 100755
+--- a/debian/rules.em
++++ b/debian/rules.em
+@@ -37,6 +37,7 @@ override_dh_auto_configure:
+ 	dh_auto_configure -- \
+ 		-DCMAKE_INSTALL_PREFIX="@(InstallationPrefix)" \
+ 		-DCMAKE_PREFIX_PATH="@(InstallationPrefix)" \
++		-DAPPEND_PROJECT_NAME_TO_INCLUDEDIR=ON \
+ 		$(BUILD_TESTING_ARG)
+ 
+ override_dh_auto_build:
+-- 
+2.44.0
+
