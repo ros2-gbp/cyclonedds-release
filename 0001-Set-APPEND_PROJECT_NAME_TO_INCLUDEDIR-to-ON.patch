@@ -1,4 +1,4 @@
-From 4460cc459514219d2096ac57e87b9ad8df2a9ab7 Mon Sep 17 00:00:00 2001
+From 5881830a14553daf43257a54390a359b1ee5e1ac Mon Sep 17 00:00:00 2001
 From: Shane Loretz <sloretz@openrobotics.org>
 Date: Mon, 21 Mar 2022 14:16:44 -0700
 Subject: [PATCH] Set APPEND_PROJECT_NAME_TO_INCLUDEDIR to ON
@@ -8,7 +8,7 @@ Subject: [PATCH] Set APPEND_PROJECT_NAME_TO_INCLUDEDIR to ON
  1 file changed, 1 insertion(+)
 
 diff --git a/debian/rules.em b/debian/rules.em
-index 284a07142d7a..36b9ccfcdf17 100755
+index 284a071..36b9ccf 100755
 --- a/debian/rules.em
 +++ b/debian/rules.em
 @@ -37,6 +37,7 @@ override_dh_auto_configure:
@@ -20,5 +20,5 @@ index 284a07142d7a..36b9ccfcdf17 100755
  
  override_dh_auto_build:
 -- 
-2.44.0
+2.43.0
 
