@@ -819,7 +819,8 @@ static unsigned uint32_popcnt (uint32_t x)
 
 static void do_print_uint32_bitset (struct cfgst *cfgst, uint32_t mask, size_t ncodes, const char **names, const uint32_t *codes, uint32_t sources, const char *suffix)
 {
-  char res[256] = "", *resp = res;
+  char res[256] = "";
+  size_t res_offset = 0;
   const char *prefix = "";
 #ifndef NDEBUG
   {
@@ -850,17 +851,21 @@ static void do_print_uint32_bitset (struct cfgst *cfgst, uint32_t mask, size_t n
     }
     if (pc_best != 0)
     {
-      resp += snprintf (resp, 256, "%s%s", prefix, names[i_best]);
+      int characters_written = snprintf (res + res_offset, sizeof(res) - res_offset, "%s%s", prefix, names[i_best]);
+      assert(characters_written >= 0);
+      res_offset += (size_t) characters_written;
       mask &= ~codes[i_best];
       prefix = ",";
     }
     else
     {
-      resp += snprintf (resp, 256, "%s0x%x", prefix, (unsigned) mask);
+      int characters_written = snprintf (res + res_offset, sizeof(res) - res_offset, "%s0x%x", prefix, (unsigned) mask);
+      assert(characters_written >= 0);
+      res_offset += (size_t) characters_written;
       mask = 0;
     }
   }
-  assert (resp <= res + sizeof (res));
+  assert (res_offset <= sizeof (res));
   cfg_logelem (cfgst, sources, "%s%s", res, suffix);
 }
 
@@ -1003,10 +1008,10 @@ GENERIC_ENUM_CTYPE (shm_loglevel, enum ddsi_shm_loglevel)
 
 /* "trace" is special: it enables (nearly) everything */
 static const char *tracemask_names[] = {
-  "fatal", "error", "warning", "info", "config", "discovery", "data", "radmin", "timing", "traffic", "topic", "tcp", "plist", "whc", "throttle", "rhc", "content", "shm", "trace", NULL
+  "fatal", "error", "warning", "info", "config", "discovery", "data", "radmin", "timing", "traffic", "topic", "tcp", "plist", "whc", "throttle", "rhc", "content", "shm", "malformed", "trace", NULL
 };
 static const uint32_t tracemask_codes[] = {
-  DDS_LC_FATAL, DDS_LC_ERROR, DDS_LC_WARNING, DDS_LC_INFO, DDS_LC_CONFIG, DDS_LC_DISCOVERY, DDS_LC_DATA, DDS_LC_RADMIN, DDS_LC_TIMING, DDS_LC_TRAFFIC, DDS_LC_TOPIC, DDS_LC_TCP, DDS_LC_PLIST, DDS_LC_WHC, DDS_LC_THROTTLE, DDS_LC_RHC, DDS_LC_CONTENT, DDS_LC_SHM, DDS_LC_ALL
+  DDS_LC_FATAL, DDS_LC_ERROR, DDS_LC_WARNING, DDS_LC_INFO, DDS_LC_CONFIG, DDS_LC_DISCOVERY, DDS_LC_DATA, DDS_LC_RADMIN, DDS_LC_TIMING, DDS_LC_TRAFFIC, DDS_LC_TOPIC, DDS_LC_TCP, DDS_LC_PLIST, DDS_LC_WHC, DDS_LC_THROTTLE, DDS_LC_RHC, DDS_LC_CONTENT, DDS_LC_SHM, DDS_LC_MALFORMED, DDS_LC_ALL
 };
 
 static enum update_result uf_tracemask (struct cfgst *cfgst, UNUSED_ARG (void *parent), UNUSED_ARG (struct cfgelem const * const cfgelem), UNUSED_ARG (int first), const char *value)
