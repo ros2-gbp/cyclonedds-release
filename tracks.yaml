@@ -177,10 +177,10 @@ tracks:
       :{release_inc} --os-name rhel
     devel_branch: releases/0.10.x
     last_release: 0.9.0b1
-    last_version: 0.10.4
+    last_version: 0.10.5
     name: cyclonedds
     patches: null
-    release_inc: '4'
+    release_inc: '1'
     release_repo_url: null
     release_tag: :{version}
     ros_distro: jazzy
