@@ -111,7 +111,7 @@ static struct ddsi_serdata *mkkeysample (int32_t keyval, unsigned statusinfo)
 }
 
 #if defined(DDS_HAS_LIFESPAN) || defined (DDS_HAS_DEADLINE_MISSED)
-static ddsrt_mtime_t rand_texp ()
+static ddsrt_mtime_t rand_texp (void)
 {
   ddsrt_mtime_t ret = ddsrt_time_monotonic();
   ret.v -= DDS_MSECS(500) + (int64_t) (ddsrt_prng_random (&prng) % DDS_MSECS(1500));
@@ -120,7 +120,7 @@ static ddsrt_mtime_t rand_texp ()
 #endif
 
 #ifdef DDS_HAS_DEADLINE_MISSED
-static dds_duration_t rand_deadline ()
+static dds_duration_t rand_deadline (void)
 {
   return (dds_duration_t) (ddsrt_prng_random (&prng) % DDS_MSECS(500));
 }
@@ -649,7 +649,7 @@ static void test_conditions (dds_entity_t pp, dds_entity_t tp, const int count, 
           if (conds[ci] <= 0) abort ();
           rhcconds[ci] = get_condaddr (conds[ci]);
           if (print) {
-            char buf[18];
+            char buf[19];
             snprintf (buf, sizeof (buf), "conds[%d]", ci);
             print_cond_w_addr (buf, conds[ci]);
           }
