@@ -41,8 +41,10 @@ DDS_Security_BinaryProperty_deinit(
     }
 
     ddsrt_free(p->name);
-    memset (p->value._buffer, 0, p->value._length); /* because key material can be stored in binary property */
-    ddsrt_free(p->value._buffer);
+    if (p->value._buffer != NULL) {
+        memset (p->value._buffer, 0, p->value._length); /* because key material can be stored in binary property */
+        ddsrt_free(p->value._buffer);
+    }
 }
 
 void
@@ -197,6 +199,7 @@ DDS_Security_BinaryPropertySeq_deinit(
         ddsrt_free(seq->_buffer[i].name);
         DDS_Security_OctetSeq_deinit(&seq->_buffer[i].value);
     }
+    ddsrt_free(seq->_buffer);
 }
 
 void
