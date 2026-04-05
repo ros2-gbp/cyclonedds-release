@@ -13,6 +13,7 @@ include(CUnit)
 
 set(sources
   atomics.c
+  bits.c
   environ.c
   heap.c
   ifaddrs.c
@@ -31,6 +32,11 @@ set(sources
 
 if(WITH_FREERTOS)
   list(APPEND sources tasklist.c)
+endif()
+
+# A workaround to prevent VxWorks compiler driver from failing on strcmp due to the -I.
+if(VXWORKS)
+  add_definitions(-Wno-implicit-function-declaration)
 endif()
 
 if(HAVE_DYNLIB)

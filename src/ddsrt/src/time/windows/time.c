@@ -1,23 +1,20 @@
-/*
- * Copyright(c) 2006 to 2021 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2021 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <assert.h>
 #include <sys/timeb.h>
 #include <time.h>
 
 #include "dds/ddsrt/time.h"
 #include "dds/ddsrt/misc.h"
-
-DDS_EXPORT extern inline DWORD
-ddsrt_duration_to_msecs_ceil(dds_duration_t reltime);
+#include "dds/ddsrt/static_assert.h"
 
 /* GetSystemTimePreciseAsFileTime was introduced with Windows 8, so
    starting from _WIN32_WINNET = 0x0602.  When building for an older
@@ -116,9 +113,7 @@ ddsrt_wctime_t ddsrt_time_wallclock(void)
 ddsrt_mtime_t ddsrt_time_monotonic(void)
 {
   ULONGLONG ubit;
-
   (void)QueryUnbiasedInterruptTime(&ubit); /* 100ns ticks */
-
   return (ddsrt_mtime_t) { (dds_time_t)ubit * 100 };
 }
 
@@ -168,7 +163,27 @@ ddsrt_etime_t ddsrt_time_elapsed(void)
   return (ddsrt_etime_t) { qpc.QuadPart * qpc_freq };
 }
 
-void dds_sleepfor(dds_duration_t reltime)
+ddsrt_hrtime_t ddsrt_time_highres(void)
 {
-  Sleep(ddsrt_duration_to_msecs_ceil(reltime));
+  ULONGLONG ubit;
+  (void)QueryUnbiasedInterruptTime(&ubit); /* 100ns ticks */
+  return (ddsrt_hrtime_t) { ubit * 100 };
+}
+
+void dds_sleepfor (dds_duration_t timeout)
+{
+  DWORD msecs;
+  if (timeout == DDS_INFINITY)
+    msecs = INFINITE;
+  else if (timeout <= 0)
+    msecs = 0;
+  else
+  {
+    DDSRT_STATIC_ASSERT (INFINITE < (DDS_INFINITY / DDS_NSECS_IN_MSEC));
+    if (timeout < (INFINITE - 1) * DDS_NSECS_IN_MSEC - (DDS_NSECS_IN_MSEC - 1))
+      msecs = (DWORD) ((timeout + DDS_NSECS_IN_MSEC - 1) / DDS_NSECS_IN_MSEC);
+    else
+      msecs = INFINITE - 1;
+  }
+  Sleep (msecs);
 }

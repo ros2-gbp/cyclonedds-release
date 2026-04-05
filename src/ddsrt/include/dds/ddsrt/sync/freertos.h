@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2019 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2019 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #ifndef DDSRT_SYNC_FREERTOS_H
 #define DDSRT_SYNC_FREERTOS_H
 
@@ -45,6 +44,18 @@ typedef struct {
   SemaphoreHandle_t sem;
   ddsrt_tasklist_t tasks;
 } ddsrt_cond_t;
+
+typedef struct {
+  ddsrt_cond_t cond;
+} ddsrt_cond_wctime_t;
+
+typedef struct {
+  ddsrt_cond_t cond;
+} ddsrt_cond_mtime_t;
+
+typedef struct {
+  ddsrt_cond_t cond;
+} ddsrt_cond_etime_t;
 
 /* This readers-writer lock implementation does not prefer writers over readers
    or vice versa. Multiple readers are allowed to hold the lock simultaneously

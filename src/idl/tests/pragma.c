@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2020 to 2021 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2020 to 2021 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,8 +38,8 @@ static void test_bad_use(const char *str)
   idl_pstate_t *pstate = NULL;
 
   ret = parse_string(str, &pstate);
-  CU_ASSERT_EQUAL(ret, IDL_RETCODE_SEMANTIC_ERROR);
-  CU_ASSERT_PTR_NULL(pstate);
+  CU_ASSERT_EQ (ret, IDL_RETCODE_SEMANTIC_ERROR);
+  CU_ASSERT_EQ (pstate, NULL);
   idl_delete_pstate(pstate);
 }
 
@@ -72,18 +71,18 @@ static void test_keylist(const char *str, idl_retcode_t exp)
   idl_pstate_t *pstate = NULL;
 
   ret = parse_string(str, &pstate);
-  CU_ASSERT_EQUAL(ret, exp);
+  CU_ASSERT_EQ (ret, exp);
   if (ret == IDL_RETCODE_OK) {
-    CU_ASSERT_PTR_NOT_NULL_FATAL(pstate);
-    CU_ASSERT_PTR_NOT_NULL_FATAL(pstate->root);
+    CU_ASSERT_NEQ_FATAL (pstate, NULL);
+    CU_ASSERT_NEQ_FATAL (pstate->root, NULL);
     const void *node = pstate->root;
     const idl_keylist_t *keylist = NULL;
     while (idl_is_enum(node))
       node = idl_next(node);
-    CU_ASSERT(idl_is_struct(node));
+    CU_ASSERT (idl_is_struct(node));
     if (node && idl_is_struct(node))
       keylist = ((const idl_struct_t *)node)->keylist;
-    CU_ASSERT_PTR_NOT_NULL(keylist);
+    CU_ASSERT_NEQ (keylist, NULL);
   }
   idl_delete_pstate(pstate);
 }
@@ -135,11 +134,11 @@ CU_Test(idl_pragma, keylist_nested_key)
                             "#pragma keylist s1 s.c";
 
   ret = parse_string(str, &pstate);
-  CU_ASSERT_EQUAL_FATAL(ret, IDL_RETCODE_OK);
-  assert(pstate);
+  CU_ASSERT_EQ_FATAL (ret, IDL_RETCODE_OK);
+  CU_ASSERT_NEQ_FATAL (pstate, NULL);
   s1 = idl_next(pstate->root);
-  CU_ASSERT_FATAL(idl_is_struct(s1));
-  CU_ASSERT((idl_mask(s1->keylist) & IDL_KEYLIST) != 0);
+  CU_ASSERT_FATAL (idl_is_struct(s1));
+  CU_ASSERT_NEQ ((idl_mask(s1->keylist) & IDL_KEYLIST), 0);
   idl_delete_pstate(pstate);
 }
 
@@ -189,7 +188,7 @@ CU_Test(idl_pragma, keylist_conflicting)
   for (size_t i = 0; i < sizeof (tests) / sizeof (tests[0]); i++) {
     printf("Test idl: %s\n", tests[i].idl);
     ret = parse_string(tests[i].idl, &pstate);
-    CU_ASSERT_EQUAL_FATAL(ret, tests[i].ret);
+    CU_ASSERT_EQ_FATAL (ret, tests[i].ret);
     if (ret != tests[i].ret)
       printf("retcode: %d\n%s\n", ret, tests[i].idl);
     idl_delete_pstate(pstate);
@@ -207,13 +206,13 @@ CU_Test(idl_pragma, keylist_scoped_name)
                             "#pragma keylist m1::s1 c";
 
   ret = parse_string(str, &pstate);
-  CU_ASSERT_EQUAL_FATAL(ret, IDL_RETCODE_OK);
-  assert(pstate);
+  CU_ASSERT_EQ_FATAL (ret, IDL_RETCODE_OK);
+  CU_ASSERT_NEQ_FATAL (pstate, NULL);
   m1 = (idl_module_t *)pstate->root;
-  CU_ASSERT_FATAL(idl_is_module(m1));
+  CU_ASSERT_FATAL (idl_is_module(m1));
   s1 = (idl_struct_t *)m1->definitions;
-  CU_ASSERT_FATAL(idl_is_struct(s1));
-  CU_ASSERT((idl_mask(s1->keylist) & IDL_KEYLIST) != 0);
+  CU_ASSERT_FATAL (idl_is_struct(s1));
+  CU_ASSERT_NEQ ((idl_mask(s1->keylist) & IDL_KEYLIST), 0);
   idl_delete_pstate(pstate);
 }
 
@@ -229,11 +228,11 @@ CU_Test(idl_pragma, keylist_outer_scope)
                             "};\n";
 
   ret = parse_string(str, &pstate);
-  CU_ASSERT_EQUAL_FATAL(ret, IDL_RETCODE_OK);
-  assert(pstate);
+  CU_ASSERT_EQ_FATAL (ret, IDL_RETCODE_OK);
+  CU_ASSERT_NEQ_FATAL (pstate, NULL);
   s1 = (idl_struct_t *)pstate->root;
-  CU_ASSERT_FATAL(idl_is_struct(s1));
-  CU_ASSERT((idl_mask(s1->keylist) & IDL_KEYLIST) != 0);
+  CU_ASSERT_FATAL (idl_is_struct(s1));
+  CU_ASSERT_NEQ ((idl_mask(s1->keylist) & IDL_KEYLIST), 0);
   idl_delete_pstate(pstate);
 }
 
@@ -246,10 +245,9 @@ CU_Test(idl_pragma, unknown)
                             "#pragma foo \"bar::baz\"";
 
   ret = parse_string(str, &pstate);
-  CU_ASSERT_EQUAL_FATAL(ret, IDL_RETCODE_OK);
-  CU_ASSERT_PTR_NOT_NULL_FATAL(pstate);
-  assert(pstate);
+  CU_ASSERT_EQ_FATAL (ret, IDL_RETCODE_OK);
+  CU_ASSERT_NEQ_FATAL (pstate, NULL);
   s1 = (idl_struct_t *)pstate->root;
-  CU_ASSERT_FATAL(idl_is_struct(s1));
+  CU_ASSERT_FATAL (idl_is_struct(s1));
   idl_delete_pstate(pstate);
 }

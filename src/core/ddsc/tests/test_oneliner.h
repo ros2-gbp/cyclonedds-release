@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2020 to 2022 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2020 to 2022 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #ifndef _TEST_ONELINER_H_
 #define _TEST_ONELINER_H_
 
@@ -75,9 +74,13 @@
  *                       the test + <dt>s rather than the current time; DT is a
  *                       floating-point number
  *
+ *               | flush ENTITY-NAME
+ *
+ *                       Invokes dds_write_flush on entity
+ *
  *               | READ-LIKE ENTITY-NAME
  *               | READ-LIKE(A,B) ENTITY-NAME
- *               | READ-LIKE{[S1[,S2[,S3...]][,...]} ENTITY-NAME
+ *               | READ-LIKE[!]{[S1[,S2[,S3...]][,...]} ENTITY-NAME
  *
  *                       Reads/takes at most 10 samples.  The second form counts the
  *                       number of valid and invalid samples seen and checks them against
@@ -86,8 +89,12 @@
  *                       In the third form, the exact result set is given by the sample
  *                       Si, which is a comma-separated list of samples:
  *
- *                         [STATE]K[ENTITY-NAME][@DT]
- *                         [STATE](K,X,Y)[ENTITY-NAME][@DT]
+ *                         [STATE]K[ENTITY-NAME][@DT][#dD][#uU]
+ *                         [STATE](K,X,Y)[ENTITY-NAME][@DT][#dD][#uU]
+ *
+ *                       Suffixing READ-LIKE with an exclamation mark in this third form
+ *                       makes it wait until all specified data has been received (with
+ *                       a maximum of 5s).
  *
  *                       The first form is an invalid sample with only the (integer) key
  *                       value K, the second form also specifies the two (integer)
@@ -102,7 +109,9 @@
  *                       publication_handle.  Not specifying a writer means any writer is
  *                       ok.  DT is the timestamp in the same manner as the write-like
  *                       operations.  Not specifying a timestamp means any timestamp is
- *                       ok.
+ *                       ok.  #dD specifies that the "disposed generation count must" be
+ *                       D, similarly, #uU specifies that the "no writers generation
+ *                       count" must be U.
  *
  *                       If the expected set ends up with "..." there may be other samples
  *                       in the result as well.
@@ -157,17 +166,17 @@
  *
  *                       Delay program execution for D s (D is a floating-point number)
  *
- *               | deaf ENTITY-NAME
- *               | deaf! ENTITY-NAME
- *               | hearing ENTITY-NAME
- *               | hearing! ENTITY-NAME
+ *               | normal[!] ENTITY-NAME
+ *               | deaf[!] ENTITY-NAME
+ *               | mute[!] ENTITY-NAME
+ *               | deafmute[!] ENTITY-NAME
  *
- *                       Makes the domain wherein the specified entity exists deaf,
- *                       respectively restoring hearing.  The entity must be either P or
- *                       P' and both must exist.  The ones suffixed with "!" play use
- *                       some tricks to speed up lease expiry and reconnection (like
- *                       forcibly deleting a proxy participant or triggering the publication
- *                       of SPDP packets).
+ *                       Makes the domain wherein the specified entity exists communicate
+ *                       normally, deaf, mute or both deaf and mute.  respectively
+ *                       restoring hearing.  The entity must be a participant.  If
+ *                       suffixed with "!", use some tricks to speed up lease expiry and
+ *                       reconnection (like forcibly deleting a proxy participant or
+ *                       triggering the publication of SPDP packets).
  *
  *               | setflags(FLAGS) ENTITY-NAME
  *
@@ -176,6 +185,8 @@
  *                         a   ignore ACKNACK messages
  *                         r   ignore retransmit requests
  *                         h   suppress periodic heartbeats
+ *                         s   suppress possible flush on synchronous (a.k.a. piggy-backed)
+ *                             heartbeat
  *                         d   drop outgoing data
  *
  *               | status LISTENER(ARGS) ENTITY-NAME
@@ -227,6 +238,7 @@
  *               | tp=N          transport-priority
  *               | ud=...        user data (with escape sequences and hex/octal
  *                               input allowed)
+ *               | wr={y|n}      writer batching
  *
  * All entities share the listeners with their global state. Only the latest invocation is visible.
  *
@@ -242,6 +254,12 @@ int test_oneliner_with_config (const char *ops, const char *config_override);
  * @return > 0 sucess, 0 failure, < 0 invalid input
  */
 int test_oneliner (const char *ops);
+
+/** @brief shorthand for test_oneliner with an override that disables any use of shared memory
+ * @param[in] ops Program to execute
+ * @return > 0 sucess, 0 failure, < 0 invalid input
+ */
+int test_oneliner_no_shm (const char *ops);
 
 union oneliner_tokval {
   int i;
@@ -296,13 +314,13 @@ struct oneliner_ctx {
   char msg[256];
 
   jmp_buf jb;
-  
+
   int mprintf_needs_timestamp;
 
   ddsrt_mutex_t g_mutex;
-  ddsrt_cond_t g_cond;
+  ddsrt_cond_mtime_t g_cond;
   struct oneliner_cb cb[3];
-  
+
   const char *config_override; // optional
 };
 

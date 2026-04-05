@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2020 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2020 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #ifndef SECURITY_CORE_PLUGIN_WRAPPER_MSG_Q_H_
 #define SECURITY_CORE_PLUGIN_WRAPPER_MSG_Q_H_
 
@@ -41,7 +40,7 @@ struct message {
 
 struct message_queue {
     ddsrt_mutex_t lock;
-    ddsrt_cond_t cond;
+    ddsrt_cond_mtime_t cond;
     struct message *head;
     struct message *tail;
 };
@@ -62,7 +61,7 @@ void delete_message(struct message *msg);
 void init_message_queue(struct message_queue *queue);
 void deinit_message_queue(struct message_queue *queue);
 int message_matched(struct message *msg, message_kind_t kind, DDS_Security_IdentityHandle lidHandle, DDS_Security_IdentityHandle ridHandle, DDS_Security_IdentityHandle hsHandle);
-enum take_message_result take_message(struct message_queue *queue, message_kind_t kind, DDS_Security_IdentityHandle lidHandle, DDS_Security_IdentityHandle ridHandle, DDS_Security_IdentityHandle hsHandle, dds_time_t abstimeout, struct message **msg);
+enum take_message_result take_message(struct message_queue *queue, message_kind_t kind, DDS_Security_IdentityHandle lidHandle, DDS_Security_IdentityHandle ridHandle, DDS_Security_IdentityHandle hsHandle, ddsrt_mtime_t abstimeout, struct message **msg);
 
 
 #endif /* SECURITY_CORE_PLUGIN_WRAPPER_MSG_Q_H_ */

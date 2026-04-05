@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2021 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2021 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include "dds/ddsrt/heap.h"
 #include "dds/ddsrt/string.h"
 #include "dds/ddsrt/types.h"
@@ -16,7 +15,7 @@
 #include "dds/security/dds_security_api.h"
 #include "dds/security/core/dds_security_serialize.h"
 #include "dds/security/core/dds_security_utils.h"
-#include "dds/security/core/shared_secret.h"
+#include "dds/security/core/dds_security_shared_secret.h"
 #include "dds/security/openssl_support.h"
 #include "CUnit/CUnit.h"
 #include "CUnit/Test.h"
@@ -86,7 +85,7 @@ static void prepare_participant_security_attributes(DDS_Security_ParticipantSecu
 
 static int register_local_participant(void)
 {
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   DDS_Security_PermissionsHandle participant_permissions = 3; //valid dummy value
   DDS_Security_PropertySeq participant_properties;
   DDS_Security_ParticipantSecurityAttributes participant_security_attributes;
@@ -113,7 +112,7 @@ static int register_local_participant(void)
 
 static int register_remote_participant(void)
 {
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   DDS_Security_PermissionsHandle remote_participant_permissions = 5;
 
   remote_particpant_crypto =
@@ -144,7 +143,7 @@ static void prepare_endpoint_security_attributes(DDS_Security_EndpointSecurityAt
 
 static int register_local_datawriter(void)
 {
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   DDS_Security_PropertySeq datawriter_properties;
   DDS_Security_EndpointSecurityAttributes datawriter_security_attributes;
 
@@ -171,7 +170,7 @@ static int register_local_datawriter(void)
 
 static int register_remote_datareader(void)
 {
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
 
   remote_reader_crypto =
       crypto->crypto_key_factory->register_matched_remote_datareader(
@@ -201,20 +200,20 @@ static void reset_exception(DDS_Security_SecurityException *ex)
 static void suite_create_local_datawriter_crypto_tokens_init(void)
 {
   allocate_shared_secret();
-  CU_ASSERT_FATAL ((plugins = load_plugins(
-                      NULL    /* Access Control */,
-                      NULL    /* Authentication */,
-                      &crypto /* Cryptograpy    */,
-                      NULL)) != NULL);
-  CU_ASSERT_EQUAL_FATAL (register_local_participant(), 0);
-  CU_ASSERT_EQUAL_FATAL (register_remote_participant(), 0);
-  CU_ASSERT_EQUAL_FATAL (register_local_datawriter(), 0);
-  CU_ASSERT_EQUAL_FATAL (register_remote_datareader(), 0);
+  CU_ASSERT_NEQ_FATAL ((plugins = load_plugins(
+    NULL    /* Access Control */,
+    NULL    /* Authentication */,
+    &crypto /* Cryptograpy    */,
+    NULL)), NULL);
+  CU_ASSERT_EQ_FATAL (register_local_participant(), 0);
+  CU_ASSERT_EQ_FATAL (register_remote_participant(), 0);
+  CU_ASSERT_EQ_FATAL (register_local_datawriter(), 0);
+  CU_ASSERT_EQ_FATAL (register_remote_datareader(), 0);
 }
 
 static void suite_create_local_datawriter_crypto_tokens_fini(void)
 {
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
 
   if (remote_reader_crypto)
   {
@@ -345,15 +344,12 @@ static bool check_token_validity(const DDS_Security_DatawriterCryptoTokenSeq *to
 CU_Test(ddssec_builtin_create_local_datawriter_crypto_tokens, happy_day, .init = suite_create_local_datawriter_crypto_tokens_init, .fini = suite_create_local_datawriter_crypto_tokens_fini)
 {
   DDS_Security_boolean result;
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   DDS_Security_DatawriterCryptoTokenSeq tokens;
 
-  CU_ASSERT_FATAL(crypto != NULL);
-  assert(crypto != NULL);
-  CU_ASSERT_FATAL(crypto->crypto_key_exchange != NULL);
-  assert(crypto->crypto_key_exchange != NULL);
-  CU_ASSERT_FATAL(crypto->crypto_key_exchange->create_local_datawriter_crypto_tokens != NULL);
-  assert(crypto->crypto_key_exchange->create_local_datawriter_crypto_tokens != 0);
+  CU_ASSERT_NEQ_FATAL (crypto, NULL);
+  CU_ASSERT_NEQ_FATAL (crypto->crypto_key_exchange, NULL);
+  CU_ASSERT_NEQ_FATAL (crypto->crypto_key_exchange->create_local_datawriter_crypto_tokens, NULL);
 
   memset(&tokens, 0, sizeof(tokens));
 
@@ -370,13 +366,13 @@ CU_Test(ddssec_builtin_create_local_datawriter_crypto_tokens, happy_day, .init =
     printf("create_local_datawriter_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
   }
 
-  CU_ASSERT_FATAL(result);
-  CU_ASSERT(exception.code == 0);
-  CU_ASSERT(exception.message == NULL);
+  CU_ASSERT_FATAL (result);
+  CU_ASSERT_EQ (exception.code, 0);
+  CU_ASSERT_EQ (exception.message, NULL);
 
   reset_exception(&exception);
 
-  CU_ASSERT(check_token_validity(&tokens));
+  CU_ASSERT (check_token_validity(&tokens));
 
   result = crypto->crypto_key_exchange->return_crypto_tokens(crypto->crypto_key_exchange, &tokens, &exception);
 
@@ -385,9 +381,9 @@ CU_Test(ddssec_builtin_create_local_datawriter_crypto_tokens, happy_day, .init =
     printf("return_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
   }
 
-  CU_ASSERT_FATAL(result);
-  CU_ASSERT(exception.code == 0);
-  CU_ASSERT(exception.message == NULL);
+  CU_ASSERT_FATAL (result);
+  CU_ASSERT_EQ (exception.code, 0);
+  CU_ASSERT_EQ (exception.message, NULL);
 
   reset_exception(&exception);
 }
@@ -395,16 +391,13 @@ CU_Test(ddssec_builtin_create_local_datawriter_crypto_tokens, happy_day, .init =
 CU_Test(ddssec_builtin_create_local_datawriter_crypto_tokens, invalid_args, .init = suite_create_local_datawriter_crypto_tokens_init, .fini = suite_create_local_datawriter_crypto_tokens_fini)
 {
   DDS_Security_boolean result;
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   DDS_Security_DatawriterCryptoTokenSeq tokens;
 
   /* Check if we actually have the validate_local_identity() function. */
-  CU_ASSERT_FATAL(crypto != NULL);
-  assert(crypto != NULL);
-  CU_ASSERT_FATAL(crypto->crypto_key_exchange != NULL);
-  assert(crypto->crypto_key_exchange != NULL);
-  CU_ASSERT_FATAL(crypto->crypto_key_exchange->create_local_datawriter_crypto_tokens != NULL);
-  assert(crypto->crypto_key_exchange->create_local_datawriter_crypto_tokens != 0);
+  CU_ASSERT_NEQ_FATAL (crypto, NULL);
+  CU_ASSERT_NEQ_FATAL (crypto->crypto_key_exchange, NULL);
+  CU_ASSERT_NEQ_FATAL (crypto->crypto_key_exchange->create_local_datawriter_crypto_tokens, NULL);
 
   memset(&tokens, 0, sizeof(tokens));
 
@@ -421,9 +414,9 @@ CU_Test(ddssec_builtin_create_local_datawriter_crypto_tokens, invalid_args, .ini
     printf("create_local_datawriter_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
   }
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
 
   reset_exception(&exception);
 
@@ -440,9 +433,9 @@ CU_Test(ddssec_builtin_create_local_datawriter_crypto_tokens, invalid_args, .ini
     printf("create_local_datawriter_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
   }
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
 
   reset_exception(&exception);
 
@@ -459,9 +452,9 @@ CU_Test(ddssec_builtin_create_local_datawriter_crypto_tokens, invalid_args, .ini
     printf("create_local_datawriter_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
   }
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
 
   reset_exception(&exception);
 
@@ -478,9 +471,9 @@ CU_Test(ddssec_builtin_create_local_datawriter_crypto_tokens, invalid_args, .ini
     printf("create_local_datawriter_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
   }
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
 
   reset_exception(&exception);
 
@@ -497,9 +490,9 @@ CU_Test(ddssec_builtin_create_local_datawriter_crypto_tokens, invalid_args, .ini
     printf("create_local_datawriter_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
   }
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
 
   reset_exception(&exception);
 }

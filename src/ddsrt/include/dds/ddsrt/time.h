@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2022 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2022 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 
 /**
  * @file
@@ -22,6 +21,7 @@
 
 #include <stdint.h>
 #include <assert.h>
+#include <stddef.h>
 
 #include "dds/export.h"
 #include "dds/config.h"
@@ -86,6 +86,10 @@ typedef struct {
   dds_time_t v;
 } ddsrt_etime_t;
 
+typedef struct {
+  uint64_t v;
+} ddsrt_hrtime_t;
+
 #define DDSRT_MTIME_NEVER ((ddsrt_mtime_t) { DDS_NEVER })
 #define DDSRT_WCTIME_NEVER ((ddsrt_wctime_t) { DDS_NEVER })
 #define DDSRT_ETIME_NEVER ((ddsrt_etime_t) { DDS_NEVER })
@@ -112,12 +116,12 @@ DDS_EXPORT void dds_sleepfor (dds_duration_t reltime);
  * @brief Get the current time in nanoseconds since the UNIX Epoch.  Identical
  * to (ddsrt_wctime_t){dds_time()}
  *
- * @returns Curren time.
+ * @returns Current time.
  */
 DDS_EXPORT ddsrt_wctime_t ddsrt_time_wallclock(void);
 
 /**
- * @brief Get high resolution, monotonic time.
+ * @brief Get monotonic time.
  *
  * The monotonic clock is a clock with near real-time progression and can be
  * used when a high-resolution time is needed without the need for it to be
@@ -132,7 +136,7 @@ DDS_EXPORT ddsrt_wctime_t ddsrt_time_wallclock(void);
 DDS_EXPORT ddsrt_mtime_t ddsrt_time_monotonic(void);
 
 /**
- * @brief Get high resolution, elapsed (and thus monotonic) time since some
+ * @brief Get elapsed (and thus monotonic) time since some
  * fixed unspecified past time.
  *
  * The elapsed time clock is a clock with near real-time progression and can be
@@ -144,6 +148,18 @@ DDS_EXPORT ddsrt_mtime_t ddsrt_time_monotonic(void);
  * @returns Elapsed time if available, otherwise return monotonic time.
  */
 DDS_EXPORT ddsrt_etime_t ddsrt_time_elapsed(void);
+
+/**
+ * @brief Get a high resolution, monotonic time suitable for measuring time differences.
+ *
+ * On most systems, the other time functions return a high resolution time stamp
+ * anyway and this is just an alias for a monotonic timestamp. On some systems
+ * this function provides a higher resolution. It should not be used for anything other
+ * than measuring (short) time intervals.
+ *
+ * @returns High resolution time stamp.
+ */
+DDS_EXPORT ddsrt_hrtime_t ddsrt_time_highres(void);
 
 /**
  * @brief Convert time into a human readable string in RFC 3339 format.
@@ -238,37 +254,6 @@ DDS_INLINE_EXPORT inline ddsrt_etime_t ddsrt_etime_add_duration(ddsrt_etime_t ab
   return t;
 }
 
-#if _WIN32
-/**
- * @brief Convert a relative time to microseconds rounding up.
- *
- * @param[in]  reltime  Relative time to convert.
- *
- * @returns INFINITE if @reltime was @DDS_INIFINITY, relative time converted to
- *          microseconds otherwise.
- */
-DDS_INLINE_EXPORT inline DWORD
-ddsrt_duration_to_msecs_ceil(dds_duration_t reltime)
-{
-  if (reltime == DDS_INFINITY) {
-    return INFINITE;
-  } else if (reltime > 0) {
-    assert(INFINITE < (DDS_INFINITY / DDS_NSECS_IN_MSEC));
-    dds_duration_t max_nsecs = (INFINITE - 1) * DDS_NSECS_IN_MSEC;
-
-    if (reltime < (max_nsecs - (DDS_NSECS_IN_MSEC - 1))) {
-      reltime += (DDS_NSECS_IN_MSEC - 1);
-    } else {
-      reltime = max_nsecs;
-    }
-
-    return (DWORD)(reltime / DDS_NSECS_IN_MSEC);
-  }
-
-  return 0;
-}
-#endif
-
 /**
  * @brief Convert monotonic time seconds & microseconds
  *
@@ -276,7 +261,7 @@ ddsrt_duration_to_msecs_ceil(dds_duration_t reltime)
  * @param[out]  sec   Seconds part
  * @param[out]  usec  Microseconds part
  */
-DDS_EXPORT void ddsrt_mtime_to_sec_usec (int32_t * __restrict sec, int32_t * __restrict usec, ddsrt_mtime_t t);
+DDS_EXPORT void ddsrt_mtime_to_sec_usec (int32_t *sec, int32_t *usec, ddsrt_mtime_t t);
 
 /**
  * @brief Convert wall-clock time seconds & microseconds
@@ -285,7 +270,7 @@ DDS_EXPORT void ddsrt_mtime_to_sec_usec (int32_t * __restrict sec, int32_t * __r
  * @param[out]  sec   Seconds part
  * @param[out]  usec  Microseconds part
  */
-DDS_EXPORT void ddsrt_wctime_to_sec_usec (int32_t * __restrict sec, int32_t * __restrict usec, ddsrt_wctime_t t);
+DDS_EXPORT void ddsrt_wctime_to_sec_usec (int32_t *sec, int32_t *usec, ddsrt_wctime_t t);
 
 /**
  * @brief Convert elapsed time seconds & microseconds
@@ -294,14 +279,10 @@ DDS_EXPORT void ddsrt_wctime_to_sec_usec (int32_t * __restrict sec, int32_t * __
  * @param[out]  sec   Seconds part
  * @param[out]  usec  Microseconds part
  */
-DDS_EXPORT void ddsrt_etime_to_sec_usec (int32_t * __restrict sec, int32_t * __restrict usec, ddsrt_etime_t t);
+DDS_EXPORT void ddsrt_etime_to_sec_usec (int32_t *sec, int32_t *usec, ddsrt_etime_t t);
 
 #if defined(__cplusplus)
 }
-#endif
-
-#if DDSRT_WITH_FREERTOS
-#include "dds/ddsrt/time/freertos.h"
 #endif
 
 #endif /* DDSRT_TIME_H */
