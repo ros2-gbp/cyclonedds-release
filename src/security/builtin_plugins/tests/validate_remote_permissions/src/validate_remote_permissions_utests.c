@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2021 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2021 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <assert.h>
 
 #include "dds/ddsrt/environ.h"
@@ -259,18 +258,18 @@ static void corrupt_permission_signature(DDS_Security_AuthenticatedPeerCredentia
   size_t len;
 
   /* It is expected that the permissions are available in a fixed location. */
-  CU_ASSERT_FATAL(token != NULL);
-  CU_ASSERT_FATAL(token->properties._buffer != NULL);
-  CU_ASSERT_FATAL(token->properties._length == 2);
-  CU_ASSERT_FATAL(token->properties._buffer[1].name != NULL);
-  CU_ASSERT_FATAL(token->properties._buffer[1].value != NULL);
-  CU_ASSERT_FATAL(strcmp(token->properties._buffer[1].name, DDS_ACTOKEN_PROP_C_PERM) == 0);
+  CU_ASSERT_NEQ_FATAL (token, NULL);
+  CU_ASSERT_NEQ_FATAL (token->properties._buffer, NULL);
+  CU_ASSERT_EQ_FATAL (token->properties._length, 2);
+  CU_ASSERT_NEQ_FATAL (token->properties._buffer[1].name, NULL);
+  CU_ASSERT_NEQ_FATAL (token->properties._buffer[1].value, NULL);
+  CU_ASSERT_STREQ_FATAL (token->properties._buffer[1].name, DDS_ACTOKEN_PROP_C_PERM);
 
   /* Corrupt a byte somewhere in the signature. */
   permissions = token->properties._buffer[1].value;
-  CU_ASSERT_FATAL(permissions != NULL);
+  CU_ASSERT_NEQ_FATAL (permissions, NULL);
   len = strlen(permissions);
-  CU_ASSERT_FATAL(len > 100);
+  CU_ASSERT_GT_FATAL (len, 100);
   permissions[len - 75]--;
 }
 
@@ -281,7 +280,7 @@ static int validate_local_identity_and_permissions(void)
   DDS_Security_DomainId domain_id = 0;
   DDS_Security_Qos participant_qos;
   DDS_Security_GUID_t candidate_participant_guid;
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   DDS_Security_GuidPrefix_t prefix = {0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xbb};
   DDS_Security_EntityId_t entityId = {{0xb0, 0xb1, 0xb2}, 0x1};
 
@@ -333,7 +332,7 @@ static int validate_local_identity_and_permissions(void)
 
 static void clear_local_identity_and_permissions(void)
 {
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   DDS_Security_boolean success;
 
   if (local_permissions_handle != DDS_SECURITY_HANDLE_NIL)
@@ -361,7 +360,7 @@ static void set_path_to_etc_dir(void)
 static void suite_validate_remote_permissions_init(void)
 {
   plugins = load_plugins(&access_control, &auth, NULL /* Cryptograpy */, NULL);
-  CU_ASSERT_FATAL(plugins != NULL);
+  CU_ASSERT_NEQ_FATAL (plugins, NULL);
   set_path_to_etc_dir();
   validate_local_identity_and_permissions();
 }
@@ -378,21 +377,18 @@ CU_Test(ddssec_builtin_validate_remote_permissions, valid_permissions, .init = s
   DDS_Security_PermissionsHandle result;
   DDS_Security_PermissionsToken permissions_token;
   DDS_Security_AuthenticatedPeerCredentialToken credential_token;
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   int r;
 
   /* Check if we actually have validate_remote_permissions function. */
-  CU_ASSERT_FATAL(access_control != NULL);
-  assert(access_control != NULL);
-  CU_ASSERT_FATAL(local_identity_handle != DDS_SECURITY_HANDLE_NIL);
-  CU_ASSERT_FATAL(access_control->validate_remote_permissions != NULL);
-  assert(access_control->validate_remote_permissions != 0);
-  CU_ASSERT_FATAL(access_control->return_permissions_handle != NULL);
-  assert(access_control->return_permissions_handle != 0);
+  CU_ASSERT_NEQ_FATAL (access_control, NULL);
+  CU_ASSERT_NEQ_FATAL (local_identity_handle, DDS_SECURITY_HANDLE_NIL);
+  CU_ASSERT_NEQ_FATAL (access_control->validate_remote_permissions, NULL);
+  CU_ASSERT_NEQ_FATAL (access_control->return_permissions_handle, NULL);
 
   fill_permissions_token(&permissions_token);
   r = fill_peer_credential_token(&credential_token, "Test_Permissions_ok.p7s");
-  CU_ASSERT_FATAL(r);
+  CU_ASSERT_NEQ_FATAL (r, 0);
 
   remote_identity_handle++;
 
@@ -408,7 +404,7 @@ CU_Test(ddssec_builtin_validate_remote_permissions, valid_permissions, .init = s
   if (result == 0)
     printf("validate_remote_permissions_failed: %s\n", exception.message ? exception.message : "Error message missing");
   reset_exception(&exception);
-  CU_ASSERT_FATAL(result != 0);
+  CU_ASSERT_NEQ_FATAL (result, 0);
   access_control->return_permissions_handle(access_control, result, &exception);
   reset_exception(&exception);
   DDS_Security_DataHolder_deinit((DDS_Security_DataHolder *)&permissions_token);
@@ -420,21 +416,18 @@ CU_Test(ddssec_builtin_validate_remote_permissions, permissions_unknown_ca, .ini
   DDS_Security_PermissionsHandle result;
   DDS_Security_PermissionsToken permissions_token;
   DDS_Security_AuthenticatedPeerCredentialToken credential_token;
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   int r;
 
   /* Check if we actually have validate_remote_permissions function. */
-  CU_ASSERT_FATAL(access_control != NULL);
-  assert(access_control != NULL);
-  CU_ASSERT_FATAL(local_identity_handle != DDS_SECURITY_HANDLE_NIL);
-  CU_ASSERT_FATAL(access_control->validate_remote_permissions != NULL);
-  assert(access_control->validate_remote_permissions != 0);
-  CU_ASSERT_FATAL(access_control->return_permissions_handle != NULL);
-  assert(access_control->return_permissions_handle != 0);
+  CU_ASSERT_NEQ_FATAL (access_control, NULL);
+  CU_ASSERT_NEQ_FATAL (local_identity_handle, DDS_SECURITY_HANDLE_NIL);
+  CU_ASSERT_NEQ_FATAL (access_control->validate_remote_permissions, NULL);
+  CU_ASSERT_NEQ_FATAL (access_control->return_permissions_handle, NULL);
 
   fill_permissions_token(&permissions_token);
   r = fill_peer_credential_token(&credential_token, "Test_Permissions_unknown_ca.p7s");
-  CU_ASSERT_FATAL(r);
+  CU_ASSERT_NEQ_FATAL (r, 0);
 
   remote_identity_handle++;
 
@@ -452,11 +445,11 @@ CU_Test(ddssec_builtin_validate_remote_permissions, permissions_unknown_ca, .ini
     printf("validate_remote_permissions_failed: %s\n", exception.message ? exception.message : "Error message missing");
   }
 
-  CU_ASSERT(result == 0);
+  CU_ASSERT_EQ (result, 0);
   if (result == 0)
   {
-    CU_ASSERT(exception.code != 0);
-    CU_ASSERT(exception.message != NULL);
+    CU_ASSERT_NEQ (exception.code, 0);
+    CU_ASSERT_NEQ (exception.message, NULL);
   }
   else
   {
@@ -475,21 +468,18 @@ CU_Test(ddssec_builtin_validate_remote_permissions, permissions_not_signed, .ini
   DDS_Security_PermissionsHandle result;
   DDS_Security_PermissionsToken permissions_token;
   DDS_Security_AuthenticatedPeerCredentialToken credential_token;
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   int r;
 
   /* Check if we actually have validate_remote_permissions function. */
-  CU_ASSERT_FATAL(access_control != NULL);
-  assert(access_control != NULL);
-  CU_ASSERT_FATAL(local_identity_handle != DDS_SECURITY_HANDLE_NIL);
-  CU_ASSERT_FATAL(access_control->validate_remote_permissions != NULL);
-  assert(access_control->validate_remote_permissions != 0);
-  CU_ASSERT_FATAL(access_control->return_permissions_handle != NULL);
-  assert(access_control->return_permissions_handle != 0);
+  CU_ASSERT_NEQ_FATAL (access_control, NULL);
+  CU_ASSERT_NEQ_FATAL (local_identity_handle, DDS_SECURITY_HANDLE_NIL);
+  CU_ASSERT_NEQ_FATAL (access_control->validate_remote_permissions, NULL);
+  CU_ASSERT_NEQ_FATAL (access_control->return_permissions_handle, NULL);
 
   fill_permissions_token(&permissions_token);
   r = fill_peer_credential_token(&credential_token, "Test_Permissions_not_signed.p7s");
-  CU_ASSERT_FATAL(r);
+  CU_ASSERT_NEQ_FATAL (r, 0);
 
   remote_identity_handle++;
 
@@ -507,11 +497,11 @@ CU_Test(ddssec_builtin_validate_remote_permissions, permissions_not_signed, .ini
     printf("validate_remote_permissions_failed: %s\n", exception.message ? exception.message : "Error message missing");
   }
 
-  CU_ASSERT(result == 0);
+  CU_ASSERT_EQ (result, 0);
   if (result == 0)
   {
-    CU_ASSERT(exception.code != 0);
-    CU_ASSERT(exception.message != NULL);
+    CU_ASSERT_NEQ (exception.code, 0);
+    CU_ASSERT_NEQ (exception.message, NULL);
   }
   else
   {
@@ -530,16 +520,13 @@ CU_Test(ddssec_builtin_validate_remote_permissions, invalid_credential_token, .i
   DDS_Security_PermissionsHandle result;
   DDS_Security_PermissionsToken permissions_token;
   DDS_Security_AuthenticatedPeerCredentialToken credential_token;
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
 
   /* Check if we actually have validate_remote_permissions function. */
-  CU_ASSERT_FATAL(access_control != NULL);
-  assert(access_control != NULL);
-  CU_ASSERT_FATAL(local_identity_handle != DDS_SECURITY_HANDLE_NIL);
-  CU_ASSERT_FATAL(access_control->validate_remote_permissions != NULL);
-  assert(access_control->validate_remote_permissions != 0);
-  CU_ASSERT_FATAL(access_control->return_permissions_handle != NULL);
-  assert(access_control->return_permissions_handle != 0);
+  CU_ASSERT_NEQ_FATAL (access_control, NULL);
+  CU_ASSERT_NEQ_FATAL (local_identity_handle, DDS_SECURITY_HANDLE_NIL);
+  CU_ASSERT_NEQ_FATAL (access_control->validate_remote_permissions, NULL);
+  CU_ASSERT_NEQ_FATAL (access_control->return_permissions_handle, NULL);
 
   remote_identity_handle++;
 
@@ -562,11 +549,11 @@ CU_Test(ddssec_builtin_validate_remote_permissions, invalid_credential_token, .i
     printf("validate_remote_permissions_failed: %s\n", exception.message ? exception.message : "Error message missing");
   }
 
-  CU_ASSERT(result == 0);
+  CU_ASSERT_EQ (result, 0);
   if (result == 0)
   {
-    CU_ASSERT(exception.code != 0);
-    CU_ASSERT(exception.message != NULL);
+    CU_ASSERT_NEQ (exception.code, 0);
+    CU_ASSERT_NEQ (exception.message, NULL);
   }
   else
   {
@@ -593,11 +580,11 @@ CU_Test(ddssec_builtin_validate_remote_permissions, invalid_credential_token, .i
     printf("validate_remote_permissions_failed: %s\n", exception.message ? exception.message : "Error message missing");
   }
 
-  CU_ASSERT(result == 0);
+  CU_ASSERT_EQ (result, 0);
   if (result == 0)
   {
-    CU_ASSERT(exception.code != 0);
-    CU_ASSERT(exception.message != NULL);
+    CU_ASSERT_NEQ (exception.code, 0);
+    CU_ASSERT_NEQ (exception.message, NULL);
   }
   else
   {
@@ -624,11 +611,11 @@ CU_Test(ddssec_builtin_validate_remote_permissions, invalid_credential_token, .i
     printf("validate_remote_permissions_failed: %s\n", exception.message ? exception.message : "Error message missing");
   }
 
-  CU_ASSERT(result == 0);
+  CU_ASSERT_EQ (result, 0);
   if (result == 0)
   {
-    CU_ASSERT(exception.code != 0);
-    CU_ASSERT(exception.message != NULL);
+    CU_ASSERT_NEQ (exception.code, 0);
+    CU_ASSERT_NEQ (exception.message, NULL);
   }
   else
   {
@@ -656,11 +643,11 @@ CU_Test(ddssec_builtin_validate_remote_permissions, invalid_credential_token, .i
     printf("validate_remote_permissions_failed: %s\n", exception.message ? exception.message : "Error message missing");
   }
 
-  CU_ASSERT(result == 0);
+  CU_ASSERT_EQ (result, 0);
   if (result == 0)
   {
-    CU_ASSERT(exception.code != 0);
-    CU_ASSERT(exception.message != NULL);
+    CU_ASSERT_NEQ (exception.code, 0);
+    CU_ASSERT_NEQ (exception.message, NULL);
   }
   else
   {
@@ -687,11 +674,11 @@ CU_Test(ddssec_builtin_validate_remote_permissions, invalid_credential_token, .i
     printf("validate_remote_permissions_failed: %s\n", exception.message ? exception.message : "Error message missing");
   }
 
-  CU_ASSERT(result == 0);
+  CU_ASSERT_EQ (result, 0);
   if (result == 0)
   {
-    CU_ASSERT(exception.code != 0);
-    CU_ASSERT(exception.message != NULL);
+    CU_ASSERT_NEQ (exception.code, 0);
+    CU_ASSERT_NEQ (exception.message, NULL);
   }
   else
   {
@@ -718,11 +705,11 @@ CU_Test(ddssec_builtin_validate_remote_permissions, invalid_credential_token, .i
     printf("validate_remote_permissions_failed: %s\n", exception.message ? exception.message : "Error message missing");
   }
 
-  CU_ASSERT(result == 0);
+  CU_ASSERT_EQ (result, 0);
   if (result == 0)
   {
-    CU_ASSERT(exception.code != 0);
-    CU_ASSERT(exception.message != NULL);
+    CU_ASSERT_NEQ (exception.code, 0);
+    CU_ASSERT_NEQ (exception.message, NULL);
   }
   else
   {
@@ -749,11 +736,11 @@ CU_Test(ddssec_builtin_validate_remote_permissions, invalid_credential_token, .i
     printf("validate_remote_permissions_failed: %s\n", exception.message ? exception.message : "Error message missing");
   }
 
-  CU_ASSERT(result == 0);
+  CU_ASSERT_EQ (result, 0);
   if (result == 0)
   {
-    CU_ASSERT(exception.code != 0);
-    CU_ASSERT(exception.message != NULL);
+    CU_ASSERT_NEQ (exception.code, 0);
+    CU_ASSERT_NEQ (exception.message, NULL);
   }
   else
   {
@@ -780,11 +767,11 @@ CU_Test(ddssec_builtin_validate_remote_permissions, invalid_credential_token, .i
     printf("validate_remote_permissions_failed: %s\n", exception.message ? exception.message : "Error message missing");
   }
 
-  CU_ASSERT(result == 0);
+  CU_ASSERT_EQ (result, 0);
   if (result == 0)
   {
-    CU_ASSERT(exception.code != 0);
-    CU_ASSERT(exception.message != NULL);
+    CU_ASSERT_NEQ (exception.code, 0);
+    CU_ASSERT_NEQ (exception.message, NULL);
   }
   else
   {
@@ -803,22 +790,19 @@ CU_Test(ddssec_builtin_validate_remote_permissions, invalid_xml, .init = suite_v
   DDS_Security_PermissionsHandle result;
   DDS_Security_PermissionsToken permissions_token;
   DDS_Security_AuthenticatedPeerCredentialToken credential_token;
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   int r;
 
   /* Check if we actually have validate_remote_permissions function. */
-  CU_ASSERT_FATAL(access_control != NULL);
-  assert(access_control != NULL);
-  CU_ASSERT_FATAL(local_identity_handle != DDS_SECURITY_HANDLE_NIL);
-  CU_ASSERT_FATAL(access_control->validate_remote_permissions != NULL);
-  assert(access_control->validate_remote_permissions != 0);
-  CU_ASSERT_FATAL(access_control->return_permissions_handle != NULL);
-  assert(access_control->return_permissions_handle != 0);
+  CU_ASSERT_NEQ_FATAL (access_control, NULL);
+  CU_ASSERT_NEQ_FATAL (local_identity_handle, DDS_SECURITY_HANDLE_NIL);
+  CU_ASSERT_NEQ_FATAL (access_control->validate_remote_permissions, NULL);
+  CU_ASSERT_NEQ_FATAL (access_control->return_permissions_handle, NULL);
 
   fill_permissions_token(&permissions_token);
   //permissions_token.
   r = fill_peer_credential_token(&credential_token, "Test_Permissions_invalid_data.p7s");
-  CU_ASSERT_FATAL(r);
+  CU_ASSERT_NEQ_FATAL (r, 0);
 
   remote_identity_handle++;
 
@@ -831,9 +815,9 @@ CU_Test(ddssec_builtin_validate_remote_permissions, invalid_xml, .init = suite_v
       &credential_token,
       &exception);
 
-  CU_ASSERT(result == 0);
-  CU_ASSERT(exception.code == DDS_SECURITY_ERR_CAN_NOT_PARSE_PERMISSIONS_CODE);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT_EQ (result, 0);
+  CU_ASSERT_EQ (exception.code, DDS_SECURITY_ERR_CAN_NOT_PARSE_PERMISSIONS_CODE);
+  CU_ASSERT_NEQ (exception.message, NULL);
   if (exception.message)
   {
     printf("(%d) %s\n", (int)exception.code, exception.message);
@@ -849,21 +833,18 @@ CU_Test(ddssec_builtin_validate_remote_permissions, permissions_expired, .init =
   DDS_Security_PermissionsHandle result;
   DDS_Security_PermissionsToken permissions_token;
   DDS_Security_AuthenticatedPeerCredentialToken credential_token;
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   int r;
 
   /* Check if we actually have validate_remote_permissions function. */
-  CU_ASSERT_FATAL(access_control != NULL);
-  assert(access_control != NULL);
-  CU_ASSERT_FATAL(local_identity_handle != DDS_SECURITY_HANDLE_NIL);
-  CU_ASSERT_FATAL(access_control->validate_remote_permissions != NULL);
-  assert(access_control->validate_remote_permissions != 0);
-  CU_ASSERT_FATAL(access_control->return_permissions_handle != NULL);
-  assert(access_control->return_permissions_handle != 0);
+  CU_ASSERT_NEQ_FATAL (access_control, NULL);
+  CU_ASSERT_NEQ_FATAL (local_identity_handle, DDS_SECURITY_HANDLE_NIL);
+  CU_ASSERT_NEQ_FATAL (access_control->validate_remote_permissions, NULL);
+  CU_ASSERT_NEQ_FATAL (access_control->return_permissions_handle, NULL);
 
   fill_permissions_token(&permissions_token);
   r = fill_peer_credential_token(&credential_token, "Test_Permissions_expired.p7s");
-  CU_ASSERT_FATAL(r);
+  CU_ASSERT_NEQ_FATAL (r, 0);
 
   remote_identity_handle++;
 
@@ -876,9 +857,9 @@ CU_Test(ddssec_builtin_validate_remote_permissions, permissions_expired, .init =
       &credential_token,
       &exception);
 
-  CU_ASSERT_FATAL(result == 0);
-  CU_ASSERT_FATAL(exception.code == DDS_SECURITY_ERR_VALIDITY_PERIOD_EXPIRED_CODE);
-  CU_ASSERT_NSTRING_EQUAL_FATAL(DDS_SECURITY_ERR_VALIDITY_PERIOD_EXPIRED_MESSAGE, exception.message, strlen(DDS_SECURITY_ERR_VALIDITY_PERIOD_EXPIRED_MESSAGE) - 16);
+  CU_ASSERT_EQ_FATAL (result, 0);
+  CU_ASSERT_EQ_FATAL (exception.code, DDS_SECURITY_ERR_VALIDITY_PERIOD_EXPIRED_CODE);
+  CU_ASSERT_EQ_FATAL (strncmp (DDS_SECURITY_ERR_VALIDITY_PERIOD_EXPIRED_MESSAGE, exception.message, strlen (DDS_SECURITY_ERR_VALIDITY_PERIOD_EXPIRED_MESSAGE) - 16), 0);
   reset_exception(&exception);
 
   DDS_Security_DataHolder_deinit((DDS_Security_DataHolder *)&permissions_token);
@@ -890,21 +871,18 @@ CU_Test(ddssec_builtin_validate_remote_permissions, permissions_not_yet, .init =
   DDS_Security_PermissionsHandle result;
   DDS_Security_PermissionsToken permissions_token;
   DDS_Security_AuthenticatedPeerCredentialToken credential_token;
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   int r;
 
   /* Check if we actually have validate_remote_permissions function. */
-  CU_ASSERT_FATAL(access_control != NULL);
-  assert(access_control != NULL);
-  CU_ASSERT_FATAL(local_identity_handle != DDS_SECURITY_HANDLE_NIL);
-  CU_ASSERT_FATAL(access_control->validate_remote_permissions != NULL);
-  assert(access_control->validate_remote_permissions != 0);
-  CU_ASSERT_FATAL(access_control->return_permissions_handle != NULL);
-  assert(access_control->return_permissions_handle != 0);
+  CU_ASSERT_NEQ_FATAL (access_control, NULL);
+  CU_ASSERT_NEQ_FATAL (local_identity_handle, DDS_SECURITY_HANDLE_NIL);
+  CU_ASSERT_NEQ_FATAL (access_control->validate_remote_permissions, NULL);
+  CU_ASSERT_NEQ_FATAL (access_control->return_permissions_handle, NULL);
 
   fill_permissions_token(&permissions_token);
   r = fill_peer_credential_token(&credential_token, "Test_Permissions_notyet.p7s");
-  CU_ASSERT_FATAL(r);
+  CU_ASSERT_NEQ_FATAL (r, 0);
 
   remote_identity_handle++;
 
@@ -917,9 +895,9 @@ CU_Test(ddssec_builtin_validate_remote_permissions, permissions_not_yet, .init =
       &credential_token,
       &exception);
 
-  CU_ASSERT_FATAL(result == 0);
-  CU_ASSERT_FATAL(exception.code == DDS_SECURITY_ERR_VALIDITY_PERIOD_NOT_STARTED_CODE);
-  CU_ASSERT_NSTRING_EQUAL_FATAL(DDS_SECURITY_ERR_VALIDITY_PERIOD_NOT_STARTED_MESSAGE, exception.message, strlen(DDS_SECURITY_ERR_VALIDITY_PERIOD_NOT_STARTED_MESSAGE) - 14);
+  CU_ASSERT_EQ_FATAL (result, 0);
+  CU_ASSERT_EQ_FATAL (exception.code, DDS_SECURITY_ERR_VALIDITY_PERIOD_NOT_STARTED_CODE);
+  CU_ASSERT_STRNEQ_FATAL(DDS_SECURITY_ERR_VALIDITY_PERIOD_NOT_STARTED_MESSAGE, exception.message);
   reset_exception(&exception);
 
   DDS_Security_DataHolder_deinit((DDS_Security_DataHolder *)&permissions_token);
@@ -931,21 +909,18 @@ CU_Test(ddssec_builtin_validate_remote_permissions, permissions_unknown_subject_
   DDS_Security_PermissionsHandle result;
   DDS_Security_PermissionsToken permissions_token;
   DDS_Security_AuthenticatedPeerCredentialToken credential_token;
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   int r;
 
   /* Check if we actually have validate_remote_permissions function. */
-  CU_ASSERT_FATAL(access_control != NULL);
-  assert(access_control != NULL);
-  CU_ASSERT_FATAL(local_identity_handle != DDS_SECURITY_HANDLE_NIL);
-  CU_ASSERT_FATAL(access_control->validate_remote_permissions != NULL);
-  assert(access_control->validate_remote_permissions != 0);
-  CU_ASSERT_FATAL(access_control->return_permissions_handle != NULL);
-  assert(access_control->return_permissions_handle != 0);
+  CU_ASSERT_NEQ_FATAL (access_control, NULL);
+  CU_ASSERT_NEQ_FATAL (local_identity_handle, DDS_SECURITY_HANDLE_NIL);
+  CU_ASSERT_NEQ_FATAL (access_control->validate_remote_permissions, NULL);
+  CU_ASSERT_NEQ_FATAL (access_control->return_permissions_handle, NULL);
 
   fill_permissions_token(&permissions_token);
   r = fill_peer_credential_token(&credential_token, "Test_Permissions_unknown_subject.p7s");
-  CU_ASSERT_FATAL(r);
+  CU_ASSERT_NEQ_FATAL (r, 0);
 
   remote_identity_handle++;
 
@@ -958,9 +933,9 @@ CU_Test(ddssec_builtin_validate_remote_permissions, permissions_unknown_subject_
       &credential_token,
       &exception);
 
-  CU_ASSERT_FATAL(result == 0);
-  CU_ASSERT_FATAL(exception.code == DDS_SECURITY_ERR_INVALID_SUBJECT_NAME_CODE);
-  CU_ASSERT_STRING_EQUAL_FATAL(DDS_SECURITY_ERR_INVALID_SUBJECT_NAME_MESSAGE, exception.message);
+  CU_ASSERT_EQ_FATAL (result, 0);
+  CU_ASSERT_EQ_FATAL (exception.code, DDS_SECURITY_ERR_INVALID_SUBJECT_NAME_CODE);
+  CU_ASSERT_STREQ_FATAL (DDS_SECURITY_ERR_INVALID_SUBJECT_NAME_MESSAGE, exception.message);
   reset_exception(&exception);
 
   DDS_Security_DataHolder_deinit((DDS_Security_DataHolder *)&permissions_token);
@@ -970,7 +945,7 @@ CU_Test(ddssec_builtin_validate_remote_permissions, permissions_unknown_subject_
 
   fill_permissions_token(&permissions_token);
   r = fill_peer_credential_token(&credential_token, "Test_Permissions_missing_subject_component.p7s");
-  CU_ASSERT_FATAL(r);
+  CU_ASSERT_NEQ_FATAL (r, 0);
 
   remote_identity_handle++;
 
@@ -983,9 +958,9 @@ CU_Test(ddssec_builtin_validate_remote_permissions, permissions_unknown_subject_
       &credential_token,
       &exception);
 
-  CU_ASSERT_FATAL(result == 0);
-  CU_ASSERT_FATAL(exception.code == DDS_SECURITY_ERR_INVALID_SUBJECT_NAME_CODE);
-  CU_ASSERT_STRING_EQUAL_FATAL(DDS_SECURITY_ERR_INVALID_SUBJECT_NAME_MESSAGE, exception.message);
+  CU_ASSERT_EQ_FATAL (result, 0);
+  CU_ASSERT_EQ_FATAL (exception.code, DDS_SECURITY_ERR_INVALID_SUBJECT_NAME_CODE);
+  CU_ASSERT_STREQ_FATAL (DDS_SECURITY_ERR_INVALID_SUBJECT_NAME_MESSAGE, exception.message);
   reset_exception(&exception);
 
   DDS_Security_DataHolder_deinit((DDS_Security_DataHolder *)&permissions_token);
@@ -997,21 +972,18 @@ CU_Test(ddssec_builtin_validate_remote_permissions, permissions_different_subjec
   DDS_Security_PermissionsHandle result;
   DDS_Security_PermissionsToken permissions_token;
   DDS_Security_AuthenticatedPeerCredentialToken credential_token;
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   int r;
 
   /* Check if we actually have validate_remote_permissions function. */
-  CU_ASSERT_FATAL(access_control != NULL);
-  assert(access_control != NULL);
-  CU_ASSERT_FATAL(local_identity_handle != DDS_SECURITY_HANDLE_NIL);
-  CU_ASSERT_FATAL(access_control->validate_remote_permissions != NULL);
-  assert(access_control->validate_remote_permissions != 0);
-  CU_ASSERT_FATAL(access_control->return_permissions_handle != NULL);
-  assert(access_control->return_permissions_handle != 0);
+  CU_ASSERT_NEQ_FATAL (access_control, NULL);
+  CU_ASSERT_NEQ_FATAL (local_identity_handle, DDS_SECURITY_HANDLE_NIL);
+  CU_ASSERT_NEQ_FATAL (access_control->validate_remote_permissions, NULL);
+  CU_ASSERT_NEQ_FATAL (access_control->return_permissions_handle, NULL);
 
   fill_permissions_token(&permissions_token);
   r = fill_peer_credential_token(&credential_token, "Test_Permissions_different_subject_representation.p7s");
-  CU_ASSERT_FATAL(r);
+  CU_ASSERT_NEQ_FATAL (r, 0);
 
   remote_identity_handle++;
 
@@ -1024,8 +996,8 @@ CU_Test(ddssec_builtin_validate_remote_permissions, permissions_different_subjec
       &credential_token,
       &exception);
 
-  CU_ASSERT_FATAL(result != 0);
-  CU_ASSERT_FATAL(exception.code == DDS_SECURITY_ERR_OK_CODE);
+  CU_ASSERT_NEQ_FATAL (result, 0);
+  CU_ASSERT_EQ_FATAL (exception.code, DDS_SECURITY_ERR_OK_CODE);
 
   reset_exception(&exception);
 
@@ -1038,22 +1010,19 @@ CU_Test(ddssec_builtin_validate_remote_permissions, corrupted_signature, .init =
   DDS_Security_PermissionsHandle result;
   DDS_Security_PermissionsToken permissions_token;
   DDS_Security_AuthenticatedPeerCredentialToken credential_token;
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   int r;
 
   /* Check if we actually have validate_remote_permissions function. */
-  CU_ASSERT_FATAL(access_control != NULL);
-  assert(access_control != NULL);
-  CU_ASSERT_FATAL(local_identity_handle != DDS_SECURITY_HANDLE_NIL);
-  CU_ASSERT_FATAL(access_control->validate_remote_permissions != NULL);
-  assert(access_control->validate_remote_permissions != 0);
-  CU_ASSERT_FATAL(access_control->return_permissions_handle != NULL);
-  assert(access_control->return_permissions_handle != 0);
+  CU_ASSERT_NEQ_FATAL (access_control, NULL);
+  CU_ASSERT_NEQ_FATAL (local_identity_handle, DDS_SECURITY_HANDLE_NIL);
+  CU_ASSERT_NEQ_FATAL (access_control->validate_remote_permissions, NULL);
+  CU_ASSERT_NEQ_FATAL (access_control->return_permissions_handle, NULL);
 
   fill_permissions_token(&permissions_token);
   //permissions_token.
   r = fill_peer_credential_token(&credential_token, "Test_Permissions_ok.p7s");
-  CU_ASSERT_FATAL(r);
+  CU_ASSERT_NEQ_FATAL (r, 0);
 
   corrupt_permission_signature(&credential_token);
 
@@ -1068,9 +1037,9 @@ CU_Test(ddssec_builtin_validate_remote_permissions, corrupted_signature, .init =
       &credential_token,
       &exception);
 
-  CU_ASSERT(result == 0);
-  CU_ASSERT(exception.code == DDS_SECURITY_ERR_INVALID_SMIME_DOCUMENT_CODE);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT_EQ (result, 0);
+  CU_ASSERT_EQ (exception.code, DDS_SECURITY_ERR_INVALID_SMIME_DOCUMENT_CODE);
+  CU_ASSERT_NEQ (exception.message, NULL);
   if (exception.message)
   {
     printf("(%d) %s\n", (int)exception.code, exception.message);

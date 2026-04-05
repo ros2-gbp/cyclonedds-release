@@ -27,13 +27,16 @@ set(_sources
   test_union_member_types_r.idl
   test_union_r.idl
   test_bounded_seq.idl
+  test_bounded_str.idl
   test_enum.idl
   test_bool.idl
   test_bitmask.idl
   test_struct_keys.idl
   test_struct_inherit_mutable_keys.idl
+  test_key_seq.idl
 )
 
+set(_includes "${_includes}\\;${CMAKE_SOURCE_DIR}/src/core/cdr/include")
 set(_includes "${_includes}\\;${CMAKE_SOURCE_DIR}/src/core/ddsc/include")
 set(_includes "${_includes}\\;${CMAKE_SOURCE_DIR}/src/core/ddsi/include")
 set(_includes "${_includes}\\;${CMAKE_SOURCE_DIR}/src/ddsrt/include")
@@ -95,7 +98,7 @@ if(MSVC)
   set(_libs "${_libs}\\;${_windows_kit_libs}/um/${CMAKE_MSVC_ARCH}")
 endif()
 
-if(ENABLE_TYPE_DISCOVERY)
+if(ENABLE_TYPELIB)
   set(_type_meta 1)
 endif()
 
@@ -119,9 +122,18 @@ foreach(_source ${_sources})
         "SANITIZER=${SANITIZER}"
         "HAS_TYPE_META=${_type_meta}")
   if(APPLE)
-    set_property(
+    if("${CMAKE_OSX_SYSROOT}" STREQUAL "")
+      execute_process(COMMAND xcrun --show-sdk-path OUTPUT_VARIABLE _osx_sysroot)
+      string(STRIP ${_osx_sysroot} _osx_sysroot)
+      set_property(
         TEST "idlc_${_base}"
         APPEND PROPERTY ENVIRONMENT
-          "OSX_SYSROOT=${CMAKE_OSX_SYSROOT}")
+        "OSX_SYSROOT=${_osx_sysroot}")
+    else()
+      set_property(
+        TEST "idlc_${_base}"
+        APPEND PROPERTY ENVIRONMENT
+        "OSX_SYSROOT=${CMAKE_OSX_SYSROOT}")
+    endif()
   endif()
 endforeach()

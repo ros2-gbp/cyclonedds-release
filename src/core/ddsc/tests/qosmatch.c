@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2019 to 2021 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2019 to 2021 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
@@ -21,8 +20,8 @@
 #include "dds/ddsrt/heap.h"
 #include "dds/ddsrt/environ.h"
 #include "dds/ddsrt/log.h"
-
-#include "dds/ddsi/ddsi_xqos.h"
+#include "ddsi__log.h"
+#include "ddsi__xqos.h"
 
 #include "test_common.h"
 #include "RWData.h"
@@ -144,7 +143,7 @@ static bool pubsub_qos_eq_h (const dds_qos_t *a, dds_entity_t ent)
   {
     /* internal interface is more luxurious that a simple compare for equality, and
        using that here saves us a ton of code */
-    delta = ddsi_xqos_delta (a, b, QP_GROUP_DATA | QP_PRESENTATION | QP_PARTITION);
+    delta = ddsi_xqos_delta (a, b, DDSI_QP_GROUP_DATA | DDSI_QP_PRESENTATION | DDSI_QP_PARTITION);
     if (delta)
     {
       DDS_CLOG (DDS_LC_ERROR, &logcfg, "pub/sub: delta = %"PRIx64"\n", delta);
@@ -158,7 +157,7 @@ static bool pubsub_qos_eq_h (const dds_qos_t *a, dds_entity_t ent)
 
 static uint64_t reader_qos_delta (const dds_qos_t *a, const dds_qos_t *b)
 {
-  return ddsi_xqos_delta (a, b, QP_USER_DATA | QP_TOPIC_DATA | QP_GROUP_DATA | QP_DURABILITY | QP_HISTORY | QP_RESOURCE_LIMITS | QP_PRESENTATION | QP_DEADLINE | QP_LATENCY_BUDGET | QP_OWNERSHIP | QP_LIVELINESS | QP_TIME_BASED_FILTER | QP_PARTITION | QP_RELIABILITY | QP_DESTINATION_ORDER | QP_ADLINK_READER_DATA_LIFECYCLE);
+  return ddsi_xqos_delta (a, b, DDSI_QP_USER_DATA | DDSI_QP_TOPIC_DATA | DDSI_QP_GROUP_DATA | DDSI_QP_DURABILITY | DDSI_QP_HISTORY | DDSI_QP_RESOURCE_LIMITS | DDSI_QP_PRESENTATION | DDSI_QP_DEADLINE | DDSI_QP_LATENCY_BUDGET | DDSI_QP_OWNERSHIP | DDSI_QP_LIVELINESS | DDSI_QP_TIME_BASED_FILTER | DDSI_QP_PARTITION | DDSI_QP_RELIABILITY | DDSI_QP_DESTINATION_ORDER | DDSI_QP_ADLINK_READER_DATA_LIFECYCLE);
 }
 
 static bool reader_qos_eq_h (const dds_qos_t *a, dds_entity_t ent)
@@ -187,7 +186,7 @@ static bool reader_qos_eq_h (const dds_qos_t *a, dds_entity_t ent)
 
 static uint64_t writer_qos_delta (const dds_qos_t *a, const dds_qos_t *b)
 {
-  return ddsi_xqos_delta (a, b, QP_USER_DATA | QP_TOPIC_DATA | QP_GROUP_DATA | QP_DURABILITY | QP_HISTORY | QP_RESOURCE_LIMITS | QP_PRESENTATION | QP_LIFESPAN | QP_DEADLINE | QP_LATENCY_BUDGET | QP_OWNERSHIP | QP_OWNERSHIP_STRENGTH | QP_LIVELINESS | QP_PARTITION | QP_RELIABILITY | QP_DESTINATION_ORDER | QP_ADLINK_WRITER_DATA_LIFECYCLE);
+  return ddsi_xqos_delta (a, b, DDSI_QP_USER_DATA | DDSI_QP_TOPIC_DATA | DDSI_QP_GROUP_DATA | DDSI_QP_DURABILITY | DDSI_QP_HISTORY | DDSI_QP_RESOURCE_LIMITS | DDSI_QP_PRESENTATION | DDSI_QP_LIFESPAN | DDSI_QP_DEADLINE | DDSI_QP_LATENCY_BUDGET | DDSI_QP_OWNERSHIP | DDSI_QP_OWNERSHIP_STRENGTH | DDSI_QP_LIVELINESS | DDSI_QP_PARTITION | DDSI_QP_RELIABILITY | DDSI_QP_DESTINATION_ORDER | DDSI_QP_ADLINK_WRITER_DATA_LIFECYCLE);
 }
 
 static bool writer_qos_eq_h (const dds_qos_t *a, dds_entity_t ent)
@@ -231,23 +230,23 @@ static uint32_t pub_thread (void *varg)
   ppqos = dds_create_qos ();
   dds_qset_userdata (ppqos, UD_QMPUB, sizeof (UD_QMPUB) - 1);
   dp = dds_create_participant (arg->domainid, ppqos, NULL);
-  CU_ASSERT_FATAL (dp > 0);
+  CU_ASSERT_GT_FATAL (dp, 0);
 
   qos = dds_create_qos ();
   setqos (qos, 0, false, true);
   tp = dds_create_topic (dp, &RWData_Msg_desc, arg->topicname, qos, NULL);
-  CU_ASSERT_FATAL (tp > 0);
+  CU_ASSERT_GT_FATAL (tp, 0);
 
   for (size_t i = 0; i < NPUB; i++)
   {
     setqos (qos, i * NWR_PUB, false, true);
     pub[i] = dds_create_publisher (dp, qos, NULL);
-    CU_ASSERT_FATAL (pub[i] > 0);
+    CU_ASSERT_GT_FATAL (pub[i], 0);
     for (size_t j = 0; j < NWR_PUB; j++)
     {
       setqos (qos, i * NWR_PUB + j, false, true);
       wr[i][j] = dds_create_writer (pub[i], tp, qos, NULL);
-      CU_ASSERT_FATAL (wr[i][j] > 0);
+      CU_ASSERT_GT_FATAL (wr[i][j], 0);
     }
   }
 
@@ -270,16 +269,16 @@ static uint32_t pub_thread (void *varg)
     {
       for (size_t j = 0; j < NWR_PUB; j++)
       {
-        if (chk[i][j])
-          continue;
         dds_instance_handle_t ih;
         dds_builtintopic_endpoint_t *ep;
         rc = dds_get_matched_subscriptions (wr[i][j], &ih, 1);
         CU_ASSERT_FATAL (rc == 0 || rc == 1);
+        if (chk[i][j])
+          continue;
         if (rc == 1)
         {
           ep = dds_get_matched_subscription_data (wr[i][j], ih);
-          CU_ASSERT_FATAL (ep != NULL);
+          CU_ASSERT_NEQ_FATAL (ep, NULL);
           setqos (qos, i * NWR_PUB + j, true, false);
           uint64_t delta = reader_qos_delta (qos, ep->qos);
           if (delta)
@@ -290,7 +289,7 @@ static uint32_t pub_thread (void *varg)
             ddsi_xqos_log (DDS_LC_ERROR, &logcfg, qos); DDS_CLOG (DDS_LC_ERROR, &logcfg, "\n");
             ddsi_xqos_log (DDS_LC_ERROR, &logcfg, ep->qos); DDS_CLOG (DDS_LC_ERROR, &logcfg, "\n");
           }
-          CU_ASSERT_FATAL (delta == 0);
+          CU_ASSERT_EQ_FATAL (delta, 0);
           dds_builtintopic_free_endpoint (ep);
           chk[i][j] = true;
           nchk++;
@@ -302,10 +301,10 @@ static uint32_t pub_thread (void *varg)
 
   dds_qset_userdata (ppqos, UD_QMPUBDONE, sizeof (UD_QMPUBDONE) - 1);
   rc = dds_set_qos (dp, ppqos);
-  CU_ASSERT_FATAL (rc == 0);
+  CU_ASSERT_EQ_FATAL (rc, 0);
 
   /* Wait until subscribers terminate */
-  printf ("wait for subscribers to terminate\n");
+  tprintf ("wait for subscribers to terminate\n");
   fflush (stdout);
   while (true)
   {
@@ -315,7 +314,7 @@ static uint32_t pub_thread (void *varg)
       {
         dds_publication_matched_status_t st;
         rc = dds_get_publication_matched_status (wr[i][j], &st);
-        CU_ASSERT_FATAL (rc == 0);
+        CU_ASSERT_EQ_FATAL (rc, 0);
         if (st.current_count)
         {
           goto have_matches;
@@ -330,7 +329,7 @@ static uint32_t pub_thread (void *varg)
   dds_delete_qos (qos);
   dds_delete_qos (ppqos);
   rc = dds_delete (dp);
-  CU_ASSERT_FATAL (rc == 0);
+  CU_ASSERT_EQ_FATAL (rc, 0);
   return 0;
 }
 
@@ -371,25 +370,25 @@ static uint32_t sub_thread (void *varg)
   dds_qos_t *qos;
 
   dp = dds_create_participant (arg->domainid, NULL, NULL);
-  CU_ASSERT_FATAL (dp > 0);
+  CU_ASSERT_GT_FATAL (dp, 0);
   pprd = dds_create_reader (dp, DDS_BUILTIN_TOPIC_DCPSPARTICIPANT, NULL, NULL);
-  CU_ASSERT_FATAL (pprd > 0);
+  CU_ASSERT_GT_FATAL (pprd, 0);
 
   qos = dds_create_qos ();
   setqos (qos, 0, true, true);
   tp = dds_create_topic (dp, &RWData_Msg_desc, arg->topicname, qos, NULL);
-  CU_ASSERT_FATAL (tp > 0);
+  CU_ASSERT_GT_FATAL (tp, 0);
 
   for (size_t i = 0; i < NPUB; i++)
   {
     setqos (qos, i * NWR_PUB, true, true);
     sub[i] = dds_create_subscriber (dp, qos, NULL);
-    CU_ASSERT_FATAL (sub[i] > 0);
+    CU_ASSERT_GT_FATAL (sub[i], 0);
     for (size_t j = 0; j < NWR_PUB; j++)
     {
       setqos (qos, i * NWR_PUB + j, true, true);
       rd[i][j] = dds_create_reader (sub[i], tp, qos, NULL);
-      CU_ASSERT_FATAL (rd[i][j] > 0);
+      CU_ASSERT_GT_FATAL (rd[i][j], 0);
     }
   }
 
@@ -412,16 +411,16 @@ static uint32_t sub_thread (void *varg)
     {
       for (size_t j = 0; j < NWR_PUB; j++)
       {
-        if (chk[i][j])
-          continue;
         dds_instance_handle_t ih;
         dds_builtintopic_endpoint_t *ep;
         rc = dds_get_matched_publications (rd[i][j], &ih, 1);
         CU_ASSERT_FATAL (rc == 0 || rc == 1);
+        if (chk[i][j])
+          continue;
         if (rc == 1)
         {
           ep = dds_get_matched_publication_data (rd[i][j], ih);
-          CU_ASSERT_FATAL (ep != NULL);
+          CU_ASSERT_NEQ_FATAL (ep, NULL);
           setqos (qos, i * NWR_PUB + j, false, false);
           uint64_t delta = writer_qos_delta (qos, ep->qos);
           if (delta)
@@ -432,7 +431,7 @@ static uint32_t sub_thread (void *varg)
             ddsi_xqos_log (DDS_LC_ERROR, &logcfg, qos); DDS_CLOG (DDS_LC_ERROR, &logcfg, "\n");
             ddsi_xqos_log (DDS_LC_ERROR, &logcfg, ep->qos); DDS_CLOG (DDS_LC_ERROR, &logcfg, "\n");
           }
-          CU_ASSERT_FATAL (delta == 0);
+          CU_ASSERT_EQ_FATAL (delta, 0);
           dds_builtintopic_free_endpoint (ep);
           chk[i][j] = true;
           nchk++;
@@ -442,12 +441,12 @@ static uint32_t sub_thread (void *varg)
     dds_sleepfor (DDS_MSECS (100));
   }
 
-  printf ("wait for publisher to have completed its checks\n");
+  tprintf ("wait for publisher to have completed its checks\n");
   wait_for_done (pprd, UD_QMPUBDONE);
 
   dds_delete_qos (qos);
   rc = dds_delete (dp);
-  CU_ASSERT_FATAL (rc == 0);
+  CU_ASSERT_EQ_FATAL (rc, 0);
   return 0;
 }
 
@@ -460,9 +459,9 @@ CU_Test(ddsc_qosmatch, basic)
   char *pub_conf = ddsrt_expand_envvars (config, 0);
   char *sub_conf = ddsrt_expand_envvars (config, 1);
   const dds_entity_t pub_dom = dds_create_domain (0, pub_conf);
-  CU_ASSERT_FATAL (pub_dom > 0);
+  CU_ASSERT_GT_FATAL (pub_dom, 0);
   const dds_entity_t sub_dom = dds_create_domain (1, sub_conf);
-  CU_ASSERT_FATAL (sub_dom > 0);
+  CU_ASSERT_GT_FATAL (sub_dom, 0);
   ddsrt_free (pub_conf);
   ddsrt_free (sub_conf);
 
@@ -480,20 +479,20 @@ CU_Test(ddsc_qosmatch, basic)
     .topicname = topicname
   };
   rc = ddsrt_thread_create (&sub_tid, "sub_thread", &tattr, sub_thread, &sub_arg);
-  CU_ASSERT_FATAL (rc == 0);
+  CU_ASSERT_EQ_FATAL (rc, 0);
 
   struct thread_arg pub_arg = {
     .domainid = 0,
     .topicname = topicname
   };
   rc = ddsrt_thread_create (&pub_tid, "pub_thread", &tattr, pub_thread, &pub_arg);
-  CU_ASSERT_FATAL (rc == 0);
+  CU_ASSERT_EQ_FATAL (rc, 0);
 
   ddsrt_thread_join (pub_tid, NULL);
   ddsrt_thread_join (sub_tid, NULL);
 
   rc = dds_delete (pub_dom);
-  CU_ASSERT_FATAL (rc == 0);
+  CU_ASSERT_EQ_FATAL (rc, 0);
   rc = dds_delete (sub_dom);
-  CU_ASSERT_FATAL (rc == 0);
+  CU_ASSERT_EQ_FATAL (rc, 0);
 }

@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2022 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2022 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <assert.h>
 #include <string.h>
 
@@ -22,20 +21,26 @@
 #include "dds__qos.h"
 #include "dds__topic.h"
 #include "dds__builtin.h"
+#include "dds__guid.h"
 #include "dds__subscriber.h" // for non-materialized DATA_ON_READERS
+#include "dds/dds.h"
 #include "dds/version.h"
 #include "dds/ddsi/ddsi_pmd.h"
 #include "dds/ddsi/ddsi_xqos.h"
-#include "dds/ddsi/q_transmit.h"
-#include "dds/ddsi/q_bswap.h"
+#include "dds/ddsi/ddsi_transmit.h"
 #include "dds/ddsi/ddsi_entity.h"
 #include "dds/ddsi/ddsi_endpoint.h"
+#include "dds/ddsi/ddsi_sertype.h"
 
-DDS_EXPORT extern inline dds_entity *dds_entity_from_handle_link (struct dds_handle_link *hdllink);
-DDS_EXPORT extern inline bool dds_entity_is_enabled (const dds_entity *e);
-DDS_EXPORT extern inline void dds_entity_status_reset (dds_entity *e, status_mask_t t);
-DDS_EXPORT extern inline uint32_t dds_entity_status_reset_ov (dds_entity *e, status_mask_t t);
-DDS_EXPORT extern inline dds_entity_kind_t dds_entity_kind (const dds_entity *e);
+#ifdef DDS_HAS_TYPELIB
+#include "dds/ddsi/ddsi_typelib.h"
+#endif
+
+extern inline dds_entity *dds_entity_from_handle_link (struct dds_handle_link *hdllink);
+extern inline bool dds_entity_is_enabled (const dds_entity *e);
+extern inline void dds_entity_status_reset (dds_entity *e, status_mask_t t);
+extern inline uint32_t dds_entity_status_reset_ov (dds_entity *e, status_mask_t t);
+extern inline dds_entity_kind_t dds_entity_kind (const dds_entity *e);
 
 const struct dds_entity_deriver *dds_entity_deriver_table[] = {
   [DDS_KIND_TOPIC] = &dds_entity_deriver_topic,
@@ -73,20 +78,21 @@ struct dds_statistics *dds_entity_deriver_dummy_create_statistics (const struct 
 void dds_entity_deriver_dummy_refresh_statistics (const struct dds_entity *e, struct dds_statistics *s) {
   (void) e; (void) s;
 }
+
 void dds_entity_deriver_dummy_invoke_cbs_for_pending_events(struct dds_entity *e, uint32_t status) {
   (void) e; (void) status;
 }
 
-DDS_EXPORT extern inline void dds_entity_deriver_interrupt (struct dds_entity *e);
-DDS_EXPORT extern inline void dds_entity_deriver_close (struct dds_entity *e);
-DDS_EXPORT extern inline dds_return_t dds_entity_deriver_delete (struct dds_entity *e);
-DDS_EXPORT extern inline dds_return_t dds_entity_deriver_set_qos (struct dds_entity *e, const dds_qos_t *qos, bool enabled);
-DDS_EXPORT extern inline dds_return_t dds_entity_deriver_validate_status (struct dds_entity *e, uint32_t mask);
-DDS_EXPORT extern inline bool dds_entity_supports_set_qos (struct dds_entity *e);
-DDS_EXPORT extern inline bool dds_entity_supports_validate_status (struct dds_entity *e);
-DDS_EXPORT extern inline struct dds_statistics *dds_entity_deriver_create_statistics (const struct dds_entity *e);
-DDS_EXPORT extern inline void dds_entity_deriver_refresh_statistics (const struct dds_entity *e, struct dds_statistics *s);
-DDS_EXPORT extern inline void dds_entity_deriver_invoke_cbs_for_pending_events (struct dds_entity *e, uint32_t status);
+extern inline void dds_entity_deriver_interrupt (struct dds_entity *e);
+extern inline void dds_entity_deriver_close (struct dds_entity *e);
+extern inline dds_return_t dds_entity_deriver_delete (struct dds_entity *e);
+extern inline dds_return_t dds_entity_deriver_set_qos (struct dds_entity *e, const dds_qos_t *qos, bool enabled);
+extern inline dds_return_t dds_entity_deriver_validate_status (struct dds_entity *e, uint32_t mask);
+extern inline bool dds_entity_supports_set_qos (struct dds_entity *e);
+extern inline bool dds_entity_supports_validate_status (struct dds_entity *e);
+extern inline struct dds_statistics *dds_entity_deriver_create_statistics (const struct dds_entity *e);
+extern inline void dds_entity_deriver_refresh_statistics (const struct dds_entity *e, struct dds_statistics *s);
+extern inline void dds_entity_deriver_invoke_cbs_for_pending_events (struct dds_entity *e, uint32_t status);
 
 static int compare_instance_handle (const void *va, const void *vb)
 {
@@ -95,7 +101,7 @@ static int compare_instance_handle (const void *va, const void *vb)
   return (*a == *b) ? 0 : (*a < *b) ? -1 : 1;
 }
 
-const ddsrt_avl_treedef_t dds_entity_children_td = DDSRT_AVL_TREEDEF_INITIALIZER (offsetof (struct dds_entity, m_avlnode_child), offsetof (struct dds_entity, m_iid), compare_instance_handle, 0);
+const ddsrt_avl_treedef_t dds_entity_children_td = DDSRT_AVL_TREEDEF_INITIALIZER (offsetof (struct dds_entity, m_avlnode_child), offsetof (struct dds_entity, m_iid), compare_instance_handle, NULL);
 
 static void dds_entity_observers_signal_delete (dds_entity *observed);
 
@@ -109,7 +115,7 @@ static bool entity_is_builtin_topic (const struct dds_entity *entity)
   else
   {
     const dds_topic *tp = (dds_topic *) entity;
-    return builtintopic_is_builtintopic (&tp->m_entity.m_domain->btif, tp->m_stype);
+    return ddsi_builtintopic_is_builtintopic (&tp->m_entity.m_domain->btif, tp->m_stype);
   }
 }
 
@@ -268,7 +274,7 @@ dds_entity_t dds_entity_init (dds_entity *e, dds_entity *parent, dds_entity_kind
 
   /* Special case: the on_data_on_readers event doesn't exist on DataReaders. */
   if (kind == DDS_KIND_READER)
-    e->m_listener.on_data_on_readers = 0;
+    e->m_listener.on_data_on_readers = NULL;
 
   if (parent)
   {
@@ -302,7 +308,7 @@ void dds_entity_init_complete (dds_entity *entity)
 void dds_entity_register_child (dds_entity *parent, dds_entity *child)
 {
   /* parent must be tracking children in its refc, or children can't be added */
-  assert (ddsrt_atomic_ld32 (&parent->m_hdllink.cnt_flags) & HDL_FLAG_ALLOW_CHILDREN);
+  assert (ddsrt_atomic_ldptr (&parent->m_hdllink.cnt_flags) & HDL_FLAG_ALLOW_CHILDREN);
   assert (child->m_iid != 0);
   assert (ddsrt_avl_lookup (&dds_entity_children_td, &parent->m_children, &child->m_iid) == NULL);
   ddsrt_avl_insert (&dds_entity_children_td, &parent->m_children, child);
@@ -374,11 +380,14 @@ static void print_delete (const dds_entity *e, enum delete_impl_state delstate ,
 {
   if (e)
   {
-    unsigned cm = ddsrt_atomic_ld32 (&e->m_hdllink.cnt_flags);
-    printf ("delete(%p, delstate %s, iid %"PRIx64"): %s%s %d pin %u refc %u %s %s\n",
+    const uintptr_t cm = ddsrt_atomic_ldptr (&e->m_hdllink.cnt_flags);
+    const uintptr_t pinc = (cm & HDL_PINCOUNT_MASK);
+    const uintptr_t refc = (cm & HDL_REFCOUNT_MASK) >> HDL_REFCOUNT_SHIFT;
+    const bool isclosed = (cm & HDL_FLAG_CLOSING) != 0;
+    printf ("delete(%p, delstate %s, iid %"PRIx64"): %s%s %d pin %"PRIuPTR" refc %"PRIuPTR" %s %s\n",
             (void *) e, (delstate == DIS_IMPLICIT) ? "implicit" : (delstate == DIS_EXPLICIT) ? "explicit" : "from_parent", iid,
             entity_kindstr (e->m_kind), (e->m_flags & DDS_ENTITY_IMPLICIT) ? " [implicit]" : "",
-            e->m_hdllink.hdl, cm & 0xfff, (cm >> 12) & 0x7fff, (cm & 0x80000000) ? "closed" : "open",
+            e->m_hdllink.hdl, pinc, refc, isclosed ? "closed" : "open",
             ddsrt_avl_is_empty (&e->m_children) ? "childless" : "has-children");
   }
   else
@@ -708,7 +717,7 @@ dds_return_t dds_get_qos (dds_entity_t entity, dds_qos_t *qos)
 
   if ((ret = dds_entity_lock (entity, DDS_KIND_DONTCARE, &e)) != DDS_RETCODE_OK)
   {
-    if (dds__get_builtin_topic_name_typename (entity, NULL, NULL) == 0)
+    if (dds__get_builtin_topic_name_typename (entity, NULL, NULL) == DDS_RETCODE_OK)
       return dds_get_qos_builtin_topic (qos);
     else
       return ret;
@@ -731,7 +740,7 @@ dds_return_t dds_get_qos (dds_entity_t entity, dds_qos_t *qos)
     }
 
     dds_reset_qos (qos);
-    ddsi_xqos_mergein_missing (qos, entity_qos, ~(QP_TOPIC_NAME | QP_TYPE_NAME | QP_TYPE_INFORMATION));
+    ddsi_xqos_mergein_missing (qos, entity_qos, ~(DDSI_QP_TOPIC_NAME | DDSI_QP_TYPE_NAME | DDSI_QP_TYPE_INFORMATION));
     ret = DDS_RETCODE_OK;
   }
   dds_entity_unlock(e);
@@ -745,7 +754,7 @@ static dds_return_t dds_set_qos_locked_raw (dds_entity *e, dds_qos_t **e_qos_ptr
 
   /* Any attempt to do this on a topic ends up doing it on the ktopic instead, so that there is
      but a single QoS for a topic in a participant while there can be multiple definitions of it,
-     and hence, multiple sertopics.  Those are needed for multi-language support. */
+     and hence, multiple sertypes.  Those are needed for multi-language support. */
   dds_qos_t *newqos = dds_create_qos ();
   ddsi_xqos_mergein_missing (newqos, qos, mask);
   ddsi_xqos_mergein_missing (newqos, *e_qos_ptr, ~(uint64_t)0);
@@ -766,13 +775,13 @@ static dds_return_t dds_set_qos_locked_raw (dds_entity *e, dds_qos_t **e_qos_ptr
       /* new settings are identical to the old */
       goto error_or_nochange;
     }
-    else if (delta & ~QP_CHANGEABLE_MASK)
+    else if (delta & ~DDSI_QP_CHANGEABLE_MASK)
     {
       /* not all QoS may be changed according to the spec */
       ret = DDS_RETCODE_IMMUTABLE_POLICY;
       goto error_or_nochange;
     }
-    else if (delta & (QP_RXO_MASK | QP_PARTITION))
+    else if (delta & (DDSI_QP_RXO_MASK | DDSI_QP_PARTITION))
     {
       /* Cyclone doesn't (yet) support changing QoS that affect matching.  Simply re-doing the
          matching is easy enough, but the consequences are very weird.  E.g., what is the
@@ -855,7 +864,7 @@ static void pushdown_pubsub_qos (dds_entity *e)
 
       ddsrt_mutex_lock (&c->m_mutex);
       ddsrt_mutex_lock (&e->m_mutex);
-      dds_set_qos_locked_impl (c, e->m_qos, QP_GROUP_DATA | QP_PARTITION);
+      dds_set_qos_locked_impl (c, e->m_qos, DDSI_QP_GROUP_DATA | DDSI_QP_PARTITION);
       ddsrt_mutex_unlock (&c->m_mutex);
       dds_entity_unpin (c);
     }
@@ -893,7 +902,7 @@ static void pushdown_topic_qos (dds_entity *e, struct dds_ktopic *ktp)
       struct dds_participant * const pp = dds_entity_participant (e);
       ddsrt_mutex_lock (&e->m_mutex);
       ddsrt_mutex_lock (&pp->m_entity.m_mutex);
-      dds_set_qos_locked_impl (e, ktp->qos, QP_TOPIC_DATA);
+      dds_set_qos_locked_impl (e, ktp->qos, DDSI_QP_TOPIC_DATA);
       ddsrt_mutex_unlock (&pp->m_entity.m_mutex);
       ddsrt_mutex_unlock (&e->m_mutex);
       break;
@@ -971,7 +980,7 @@ dds_return_t dds_set_qos (dds_entity_t entity, const dds_qos_t *qos)
   }
 
   dds_entity_unpin (e);
-  return 0;
+  return DDS_RETCODE_OK;
 }
 
 dds_return_t dds_get_listener (dds_entity_t entity, dds_listener_t *listener)
@@ -1054,7 +1063,7 @@ dds_return_t dds_set_listener (dds_entity_t entity, const dds_listener_t *listen
 
   /* Special case: the on_data_on_readers event doesn't exist on DataReaders. */
   if (dds_entity_kind (e) == DDS_KIND_READER)
-    e->m_listener.on_data_on_readers = 0;
+    e->m_listener.on_data_on_readers = NULL;
 
   x = e;
   while (dds_entity_kind (x) != DDS_KIND_CYCLONEDDS)
@@ -1130,11 +1139,6 @@ dds_return_t dds_get_status_mask (dds_entity_t entity, uint32_t *mask)
   return ret;
 }
 
-dds_return_t dds_get_enabled_status (dds_entity_t entity, uint32_t *status)
-{
-  return dds_get_status_mask(entity, status);
-}
-
 dds_return_t dds_set_status_mask (dds_entity_t entity, uint32_t mask)
 {
   dds_entity *e;
@@ -1169,15 +1173,11 @@ dds_return_t dds_set_status_mask (dds_entity_t entity, uint32_t mask)
       assert (!(old & DDS_DATA_ON_READERS_STATUS) || dds_entity_kind (e) != DDS_KIND_READER);
       new = (mask << SAM_ENABLED_SHIFT) | (old & SAM_STATUS_MASK);
     } while (!ddsrt_atomic_cas32 (&e->m_status.m_status_and_mask, old, new));
+    dds_entity_observers_signal (e);
     ddsrt_mutex_unlock (&e->m_observers_lock);
   }
   dds_entity_unlock (e);
   return ret;
-}
-
-dds_return_t dds_set_enabled_status(dds_entity_t entity, uint32_t mask)
-{
-  return dds_set_status_mask (entity, mask);
 }
 
 static dds_return_t dds_readtake_status (dds_entity_t entity, uint32_t *status, uint32_t mask, bool reset)
@@ -1286,17 +1286,13 @@ dds_return_t dds_get_guid (dds_entity_t entity, dds_guid_t *guid)
     case DDS_KIND_PARTICIPANT:
     case DDS_KIND_READER:
     case DDS_KIND_WRITER:
-    case DDS_KIND_TOPIC: {
-      DDSRT_STATIC_ASSERT (sizeof (dds_guid_t) == sizeof (ddsi_guid_t));
-      ddsi_guid_t tmp = nn_ntoh_guid (e->m_guid);
-      memcpy (guid, &tmp, sizeof (*guid));
+    case DDS_KIND_TOPIC:
+      *guid = dds_guid_from_ddsi_guid (e->m_guid);
       ret = DDS_RETCODE_OK;
       break;
-    }
-    default: {
+    default:
       ret = DDS_RETCODE_ILLEGAL_OPERATION;
       break;
-    }
   }
   dds_entity_unpin(e);
   return ret;
@@ -1444,10 +1440,10 @@ dds_return_t dds_entity_observer_unregister (dds_entity *observed, dds_waitset *
   return rc;
 }
 
-void dds_entity_observers_signal (dds_entity *observed, uint32_t status)
+void dds_entity_observers_signal (dds_entity *observed)
 {
   for (dds_entity_observer *idx = observed->m_observers; idx; idx = idx->m_next)
-    idx->m_cb (idx->m_observer, observed->m_hdllink.hdl, status);
+    idx->m_cb (idx->m_observer, observed->m_hdllink.hdl);
 }
 
 static void dds_entity_observers_signal_delete (dds_entity *observed)
@@ -1464,10 +1460,10 @@ static void dds_entity_observers_signal_delete (dds_entity *observed)
   observed->m_observers = NULL;
 }
 
-void dds_entity_status_signal (dds_entity *e, uint32_t status)
+void dds_entity_status_signal (dds_entity *e)
 {
   ddsrt_mutex_lock (&e->m_observers_lock);
-  dds_entity_observers_signal (e, status);
+  dds_entity_observers_signal (e);
   ddsrt_mutex_unlock (&e->m_observers_lock);
 }
 
@@ -1562,13 +1558,13 @@ dds_return_t dds_assert_liveliness (dds_entity_t entity)
   switch (dds_entity_kind (e))
   {
     case DDS_KIND_PARTICIPANT: {
-      write_pmd_message_guid (&e->m_domain->gv, &e->m_guid, PARTICIPANT_MESSAGE_DATA_KIND_MANUAL_LIVELINESS_UPDATE);
+      ddsi_write_pmd_message_guid (&e->m_domain->gv, &e->m_guid, DDSI_PARTICIPANT_MESSAGE_DATA_KIND_MANUAL_LIVELINESS_UPDATE);
       break;
     }
     case DDS_KIND_WRITER: {
       if ((rc = dds_entity_lock (entity, DDS_KIND_WRITER, &ewr)) != DDS_RETCODE_OK)
         return rc;
-      if ((rc = write_hb_liveliness (&e->m_domain->gv, &e->m_guid, ((struct dds_writer *)ewr)->m_xp)) != DDS_RETCODE_OK)
+      if ((rc = ddsi_write_hb_liveliness (&e->m_domain->gv, &e->m_guid, ((struct dds_writer *)ewr)->m_xp)) != DDS_RETCODE_OK)
         return rc;
       dds_entity_unlock (e);
       break;
@@ -1580,6 +1576,49 @@ dds_return_t dds_assert_liveliness (dds_entity_t entity)
   }
   dds_entity_unpin (e);
   return rc;
+}
+
+dds_return_t dds_request_loan (dds_entity_t entity, void **sample)
+{
+  dds_entity *p_entity;
+  dds_return_t ret;
+
+  if (sample == NULL)
+    return DDS_RETCODE_BAD_PARAMETER;
+
+  if ((ret = dds_entity_pin (entity, &p_entity)) < 0)
+    return ret;
+
+  switch (dds_entity_kind (p_entity))
+  {
+    case DDS_KIND_WRITER: {
+      dds_writer *wr = (dds_writer *) p_entity;
+      ret = dds_request_writer_loan (wr, DDS_WRITER_LOAN_REGULAR, 0, sample);
+      break;
+    }
+    case DDS_KIND_DONTCARE:
+    case DDS_KIND_CYCLONEDDS:
+    case DDS_KIND_DOMAIN:
+    case DDS_KIND_WAITSET:
+    case DDS_KIND_COND_GUARD:
+    case DDS_KIND_PARTICIPANT:
+    case DDS_KIND_TOPIC:
+    case DDS_KIND_PUBLISHER:
+    case DDS_KIND_SUBSCRIBER:
+    case DDS_KIND_READER:
+    case DDS_KIND_COND_READ:
+    case DDS_KIND_COND_QUERY: {
+      ret = DDS_RETCODE_ILLEGAL_OPERATION;
+      break;
+    }
+  }
+  dds_entity_unpin (p_entity);
+  return ret;
+}
+
+dds_return_t dds_loan_sample (dds_entity_t writer, void **sample)
+{
+  return dds_request_loan (writer, sample);
 }
 
 dds_return_t dds_return_loan (dds_entity_t entity, void **buf, int32_t bufsz)
@@ -1639,7 +1678,7 @@ dds_return_t dds_return_loan (dds_entity_t entity, void **buf, int32_t bufsz)
   return ret;
 }
 
-#ifdef DDS_HAS_TYPE_DISCOVERY
+#ifdef DDS_HAS_TYPELIB
 
 dds_return_t dds_get_typeinfo (dds_entity_t entity, dds_typeinfo_t **type_info)
 {
@@ -1687,7 +1726,7 @@ dds_return_t dds_free_typeinfo (dds_typeinfo_t *type_info)
   return DDS_RETCODE_OK;
 }
 
-#else
+#else /* DDS_HAS_TYPELIB */
 
 dds_return_t dds_get_typeinfo (dds_entity_t entity, dds_typeinfo_t **type_info)
 {
@@ -1702,4 +1741,100 @@ dds_return_t dds_free_typeinfo (dds_typeinfo_t *type_info)
   return DDS_RETCODE_UNSUPPORTED;
 }
 
-#endif /* DDS_HAS_TYPE_DISCOVERY */
+#endif /* DDS_HAS_TYPELIB */
+
+
+dds_return_t dds_get_entity_sertype (dds_entity_t entity, const struct ddsi_sertype **sertype)
+{
+  dds_return_t ret;
+  dds_entity *e;
+
+  if (!sertype)
+    return DDS_RETCODE_BAD_PARAMETER;
+  if ((ret = dds_entity_pin (entity, &e)) != DDS_RETCODE_OK)
+    return ret;
+  switch (dds_entity_kind (e))
+  {
+    case DDS_KIND_TOPIC: {
+      struct dds_topic * const tp = (struct dds_topic *) e;
+      *sertype = tp->m_stype;
+      break;
+    }
+    case DDS_KIND_READER: {
+      struct dds_reader * const rd = (struct dds_reader *) e;
+      *sertype = rd->m_rd->type;
+      break;
+    }
+    case DDS_KIND_WRITER: {
+      struct dds_writer * const wr = (struct dds_writer *) e;
+      *sertype = wr->m_wr->type;
+      break;
+    }
+    default:
+      ret = DDS_RETCODE_ILLEGAL_OPERATION;
+      break;
+  }
+  dds_entity_unpin (e);
+  return ret;
+}
+
+static void pushdown_write_flush (dds_entity *e)
+{
+  /* Note: e is claimed, no mutexes held */
+  struct dds_entity *c;
+  dds_instance_handle_t last_iid = 0;
+  ddsrt_mutex_lock (&e->m_mutex);
+  while ((c = ddsrt_avl_lookup_succ (&dds_entity_children_td, &e->m_children, &last_iid)) != NULL)
+  {
+    struct dds_entity *x;
+    last_iid = c->m_iid;
+    if (dds_entity_pin (c->m_hdllink.hdl, &x) == DDS_RETCODE_OK)
+    {
+      assert (x == c);
+      ddsrt_mutex_unlock (&e->m_mutex);
+      switch (dds_entity_kind (c))
+      {
+        case DDS_KIND_WRITER:
+          dds_write_flush_impl ((dds_writer *) c);
+          break;
+        case DDS_KIND_PUBLISHER:
+        case DDS_KIND_PARTICIPANT:
+        case DDS_KIND_DOMAIN:
+          pushdown_write_flush (c);
+          break;
+        default:
+          break;
+      }
+      ddsrt_mutex_lock (&e->m_mutex);
+      dds_entity_unpin (c);
+    }
+  }
+  ddsrt_mutex_unlock (&e->m_mutex);
+}
+
+dds_return_t dds_write_flush (dds_entity_t entity)
+{
+  dds_entity *e;
+  dds_return_t rc;
+  if ((rc = dds_entity_pin (entity, &e)) != DDS_RETCODE_OK)
+    return rc;
+  struct ddsi_thread_state * const thrst = ddsi_lookup_thread_state ();
+  ddsi_thread_state_awake (thrst, &e->m_domain->gv);
+  switch (dds_entity_kind (e))
+  {
+    case DDS_KIND_WRITER:
+      dds_write_flush_impl ((dds_writer *) e);
+      break;
+    case DDS_KIND_PUBLISHER:
+    case DDS_KIND_PARTICIPANT:
+    case DDS_KIND_DOMAIN:
+      pushdown_write_flush (e);
+      break;
+    default:
+      rc = DDS_RETCODE_ILLEGAL_OPERATION;
+      break;
+  }
+  ddsi_thread_state_asleep (thrst);
+  dds_entity_unpin (e);
+  return rc;
+}

@@ -11,19 +11,19 @@
 #
 include (GenerateExportHeader)
 
-if (BUILD_SHARED_LIBS OR NOT DEFINED BUILD_SHARED_LIBS)
-  add_library(ddsc SHARED "")
-else()
-  add_library(ddsc)
-endif()
+add_library(ddsc)
 
-set_property(TARGET ddsc PROPERTY C_VISIBILITY_PRESET hidden)
+if(BUILD_TESTING OR EXPORT_ALL_SYMBOLS)
+  set_property(TARGET ddsc PROPERTY WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
+else()
+  set_property(TARGET ddsc PROPERTY C_VISIBILITY_PRESET hidden)
+endif()
 
 if("${CMAKE_C_COMPILER_ID}" STREQUAL "MSVC")
   target_link_libraries(ddsc PRIVATE dbghelp)
 endif()
 
-if(ENABLE_SSL AND OPENSSL_FOUND)
+if(ENABLE_TCP_TLS AND OPENSSL_FOUND)
   target_link_libraries(ddsc PRIVATE OpenSSL::SSL)
   if(CMAKE_GENERATOR MATCHES "Visual Studio")
     set_target_properties(ddsc PROPERTIES LINK_FLAGS "/ignore:4099")
@@ -52,18 +52,35 @@ endif()
 
 # Support the OMG DDS Security within ddsc adds quite a bit of code.
 if(ENABLE_SECURITY)
-  target_link_libraries(ddsc PRIVATE security_core)
+  target_link_libraries(ddsc PRIVATE "$<BUILD_INTERFACE:security_core>")
   target_include_directories(
     ddsc PUBLIC
     $<BUILD_INTERFACE:$<TARGET_PROPERTY:security_api,INTERFACE_INCLUDE_DIRECTORIES>>)
 endif()
 
-if(ENABLE_SHM)
-  target_link_libraries(ddsc PRIVATE iceoryx_binding_c::iceoryx_binding_c)
-endif()
-
+include(cdr/CMakeLists.txt)
 include(ddsi/CMakeLists.txt)
 include(ddsc/CMakeLists.txt)
+
+# The not-so-elegant inclusion of all configured plug-ins for static builds.  At least it
+# keeps most of the dirty things in one place.
+if(NOT BUILD_SHARED_LIBS)
+  get_property(plugin_list GLOBAL PROPERTY cdds_plugin_list)
+  if(plugin_list)
+    list(JOIN plugin_list "," plugin_commasep)
+    target_compile_options(ddsc PRIVATE "-DPLUGINS=${plugin_commasep}")
+    target_link_libraries(ddsc PRIVATE ${plugin_list})
+    foreach(plugin ${plugin_list})
+      set(propname ${plugin}_symbols)
+      get_property(plugin_symbols GLOBAL PROPERTY ${propname})
+      list(JOIN plugin_symbols "," plugin_symbols_commasep)
+      target_compile_options(ddsc PRIVATE "-DPLUGIN_SYMBOLS_${plugin}=${plugin_symbols_commasep}")
+    endforeach()
+  endif()
+  if(ENABLE_SSL)
+    target_link_libraries(ddsc PUBLIC security_openssl)
+  endif()
+endif()
 
 add_coverage(ddsc)
 target_link_libraries(ddsc PRIVATE "$<BUILD_INTERFACE:ddsrt>")
@@ -77,16 +94,18 @@ target_include_directories(
 # SOVERSION should increase on incompatible ABI change
 set_target_properties(ddsc PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR})
 
-# define target property to indicate if Cyclone DDS is compiled with SHM support
+# define target property to indicate if Cyclone DDS is compiled with type library support
 define_property(TARGET
-    PROPERTY SHM_SUPPORT_IS_AVAILABLE
-    BRIEF_DOCS "Indicator whether SHM support is available with current Cyclone DDS build configuration."
-    FULL_DOCS "Indicator whether SHM support is available with current Cyclone DDS build configuration."
+    PROPERTY TYPELIB_IS_AVAILABLE
+    BRIEF_DOCS "Indicator whether type library is available with current Cyclone DDS build configuration."
+    FULL_DOCS "Indicator whether type library is available with current Cyclone DDS build configuration."
     )
-set_target_properties(ddsc PROPERTIES
-    SHM_SUPPORT_IS_AVAILABLE "${ENABLE_SHM}")
-set_target_properties(ddsc PROPERTIES EXPORT_PROPERTIES
-    "SHM_SUPPORT_IS_AVAILABLE")
+set_property(
+    TARGET ddsc
+    APPEND PROPERTY TYPELIB_IS_AVAILABLE "${ENABLE_TYPELIB}")
+set_property(
+    TARGET ddsc
+    APPEND PROPERTY EXPORT_PROPERTIES "TYPELIB_IS_AVAILABLE")
 
 # define target property to indicate if Cyclone DDS is compiled with type discovery
 define_property(TARGET
@@ -114,6 +133,19 @@ set_property(
     TARGET ddsc
     APPEND PROPERTY EXPORT_PROPERTIES "TOPIC_DISCOVERY_IS_AVAILABLE")
 
+# define target property to indicate if Cyclone DDS is compiled with qos provider
+define_property(TARGET
+    PROPERTY QOS_PROVIDER_IS_AVAILABLE
+    BRIEF_DOCS "Indicator whether qos provider is available with current Cyclone DDS build configuration."
+    FULL_DOCS "Indicator whether qos provider is available with current Cyclone DDS build configuration."
+    )
+set_property(
+    TARGET ddsc
+    APPEND PROPERTY QOS_PROVIDER_IS_AVAILABLE "${ENABLE_QOS_PROVIDER}")
+set_property(
+    TARGET ddsc
+    APPEND PROPERTY EXPORT_PROPERTIES "QOS_PROVIDER_IS_AVAILABLE")
+
 # Create a pseudo-target that other targets (i.e. examples, tests) can depend
 # on and can also be provided as import-target by a package-file when building
 # those targets outside the regular Cyclone build-tree (i.e. the installed tree)
@@ -134,6 +166,4 @@ if (INSTALL_PDB)
   )
 endif()
 
-if(BUILD_TESTING AND BUILD_IDLC)
-  add_subdirectory(xtests)
-endif()
+add_subdirectory(xtests)

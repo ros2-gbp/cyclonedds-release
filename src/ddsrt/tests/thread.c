@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2019 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2019 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <assert.h>
 #include <stdlib.h>
 #if DDSRT_WITH_FREERTOS
@@ -150,13 +149,13 @@ CU_Theory((ddsrt_sched_t sched, int32_t *prio, uint32_t exp), ddsrt_thread, crea
     arg.ret = (int32_t)exp;
     arg.attr = &attr;
     ret = ddsrt_thread_create(&thr, "thread", &attr, &thread_main, &arg);
-    CU_ASSERT_EQUAL(ret, DDS_RETCODE_OK);
+    CU_ASSERT_EQ (ret, DDS_RETCODE_OK);
     if (ret == DDS_RETCODE_OK) {
       ret = ddsrt_thread_join (thr, &res);
-      CU_ASSERT_EQUAL(ret, DDS_RETCODE_OK);
-      CU_ASSERT_EQUAL(res, exp);
+      CU_ASSERT_EQ (ret, DDS_RETCODE_OK);
+      CU_ASSERT_EQ (res, exp);
       if (ret == DDS_RETCODE_OK) {
-        CU_ASSERT_EQUAL(arg.res, 1);
+        CU_ASSERT_EQ (arg.res, 1);
       }
     }
   }
@@ -187,7 +186,7 @@ CU_Test(ddsrt_thread, thread_id)
   eq = pthread_equal(thr.v, _thr);
 #endif
 
-  CU_ASSERT_NOT_EQUAL(eq, 0);
+  CU_ASSERT_NEQ (eq, 0);
 }
 
 
@@ -226,9 +225,9 @@ CU_Test(ddsrt_thread, stacked_join)
   ddsrt_mutex_lock(&locks[1]);
   ddsrt_threadattr_init(&attr);
   ret = ddsrt_thread_create(&thrs[0], "", &attr, &thread_main_waitforme, NULL);
-  CU_ASSERT_EQUAL_FATAL(ret, DDS_RETCODE_OK);
+  CU_ASSERT_EQ_FATAL (ret, DDS_RETCODE_OK);
   ret = ddsrt_thread_create(&thrs[1], "", &attr, &thread_main_waitforit, &thrs[0]);
-  CU_ASSERT_EQUAL_FATAL(ret, DDS_RETCODE_OK);
+  CU_ASSERT_EQ_FATAL (ret, DDS_RETCODE_OK);
 
   ddsrt_mutex_unlock(&locks[1]);
   dds_sleepfor(DDS_MSECS(100)); /* 100ms */
@@ -236,7 +235,7 @@ CU_Test(ddsrt_thread, stacked_join)
 
   ddsrt_thread_join(thrs[1], &res);
 
-  CU_ASSERT_EQUAL(res, 30303);
+  CU_ASSERT_EQ (res, 30303);
 
   ddsrt_mutex_destroy(&locks[0]);
   ddsrt_mutex_destroy(&locks[1]);
@@ -247,7 +246,7 @@ CU_Test(ddsrt_thread, attribute)
   ddsrt_threadattr_t attr;
 
   ddsrt_threadattr_init(&attr);
-  CU_ASSERT_EQUAL(attr.schedClass, DDSRT_SCHED_DEFAULT);
-  CU_ASSERT_EQUAL(attr.schedPriority, 0);
-  CU_ASSERT_EQUAL(attr.stackSize, 0);
+  CU_ASSERT_EQ (attr.schedClass, DDSRT_SCHED_DEFAULT);
+  CU_ASSERT_EQ (attr.schedPriority, 0);
+  CU_ASSERT_EQ (attr.stackSize, 0);
 }
