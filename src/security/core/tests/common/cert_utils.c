@@ -1,18 +1,17 @@
-/*
- * Copyright(c) 2006 to 2020 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2020 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 
 #include <stdlib.h>
 #include <string.h>
 
+#include "dds/ddsrt/misc.h"
 #include "dds/ddsrt/heap.h"
 #include "dds/ddsrt/string.h"
 #include "dds/security/openssl_support.h"
@@ -25,10 +24,10 @@
 static X509 * get_x509(int not_valid_before, int not_valid_after, const char * cn, const char * email)
 {
   X509 * cert = X509_new ();
-  CU_ASSERT_FATAL (cert != NULL);
+  CU_ASSERT_NEQ_FATAL (cert, NULL);
   ASN1_INTEGER_set (X509_get_serialNumber (cert), 1);
-  X509_gmtime_adj (X509_get_notBefore (cert), not_valid_before);
-  X509_gmtime_adj (X509_get_notAfter (cert), not_valid_after);
+  X509_gmtime_adj (X509_getm_notBefore (cert), not_valid_before);
+  X509_gmtime_adj (X509_getm_notAfter (cert), not_valid_after);
 
   X509_NAME * name = X509_get_subject_name (cert);
   X509_NAME_add_entry_by_txt (name, "C",  MBSTRING_ASC, (unsigned char *) "NL", -1, -1, 0);
@@ -45,7 +44,7 @@ static char * get_x509_data(X509 * cert)
   if (!PEM_write_bio_X509 (output_bio, cert)) {
     printf ("Error writing certificate\n");
     ERR_print_errors_fp (stderr);
-    CU_ASSERT_FATAL (false);
+    CU_FAIL ("oops");
   }
 
   // Get string
@@ -63,7 +62,7 @@ static EVP_PKEY * get_priv_key(const char * priv_key_str)
 {
   BIO *pkey_bio = BIO_new_mem_buf (priv_key_str, -1);
   EVP_PKEY *priv_key = PEM_read_bio_PrivateKey (pkey_bio, NULL, NULL, 0);
-  CU_ASSERT_FATAL (priv_key != NULL);
+  CU_ASSERT_NEQ_FATAL (priv_key, NULL);
   BIO_free (pkey_bio);
   return priv_key;
 }
@@ -72,15 +71,13 @@ static X509 * get_cert(const char * cert_str)
 {
   BIO *cert_bio = BIO_new_mem_buf (cert_str, -1);
   X509 *cert = PEM_read_bio_X509 (cert_bio, NULL, NULL, 0);
-  CU_ASSERT_FATAL (cert != NULL);
+  CU_ASSERT_NEQ_FATAL (cert, NULL);
   BIO_free (cert_bio);
   return cert;
 }
 
-char * generate_ca(const char *ca_name, const char * ca_priv_key_str, int not_valid_before, int not_valid_after)
+static char * generate_ca_internal(const char *ca_name, EVP_PKEY *ca_priv_key, int not_valid_before, int not_valid_after)
 {
-  EVP_PKEY *ca_priv_key = get_priv_key (ca_priv_key_str);
-
   char * email = malloc (MAX_EMAIL);
   snprintf(email, MAX_EMAIL, "%s@%s" , ca_name, EMAIL_HOST);
   X509 * ca_cert = get_x509 (not_valid_before, not_valid_after, ca_name, email);
@@ -97,11 +94,15 @@ char * generate_ca(const char *ca_name, const char * ca_priv_key_str, int not_va
   return output;
 }
 
-char * generate_identity(const char * ca_cert_str, const char * ca_priv_key_str, const char * name, const char * priv_key_str, int not_valid_before, int not_valid_after, char ** subject)
+char * generate_ca(const char *ca_name, const char * ca_priv_key_str, int not_valid_before, int not_valid_after)
+{
+  EVP_PKEY *ca_priv_key = get_priv_key (ca_priv_key_str);
+  return generate_ca_internal(ca_name, ca_priv_key, not_valid_before, not_valid_after);
+}
+
+static char * generate_identity_internal(const char * ca_cert_str, EVP_PKEY * ca_key_pkey, const char * name, EVP_PKEY * id_pkey, int not_valid_before, int not_valid_after, char ** subject)
 {
   X509 *ca_cert = get_cert (ca_cert_str);
-  EVP_PKEY *ca_key_pkey = get_priv_key (ca_priv_key_str);
-  EVP_PKEY *id_pkey = get_priv_key (priv_key_str);
   EVP_PKEY *ca_cert_pkey = X509_get_pubkey (ca_cert);
   X509_REQ *csr =  X509_REQ_new ();
   X509_REQ_set_pubkey (csr, id_pkey);
@@ -136,3 +137,179 @@ char * generate_identity(const char * ca_cert_str, const char * ca_priv_key_str,
 
   return output;
 }
+
+char * generate_identity(const char * ca_cert_str, const char * ca_priv_key_str, const char * name, const char * priv_key_str, int not_valid_before, int not_valid_after, char ** subject)
+{
+  EVP_PKEY *ca_key_pkey = get_priv_key (ca_priv_key_str);
+  EVP_PKEY *id_pkey = get_priv_key (priv_key_str);
+  return generate_identity_internal(ca_cert_str, ca_key_pkey, name, id_pkey, not_valid_before, not_valid_after, subject);
+}
+
+bool check_pkcs11_provider(void)
+{
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+  if (OSSL_PROVIDER_available(NULL, "pkcs11"))
+    return true;
+  else if (OSSL_PROVIDER_try_load(NULL, "pkcs11", 1))
+    return true;
+#endif
+  return false;
+}
+
+char * generate_pkcs11_private_key(const char *token, const char *name, uint32_t id, const char *pin)
+{
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+  const char template[] = "pkcs11:token=%s;object=%s;id=%u?pin-value=%s";
+  size_t len = sizeof (template) + strlen (token) + strlen (name) + 10 + strlen (pin);
+  char *uri = malloc (len);
+  snprintf(uri, len, template, token, name, id, pin);
+  EVP_PKEY *pkey = NULL;
+
+  /* Create keygen context using PKCS#11 URI */
+  EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_from_name(NULL, "EC", "provider=pkcs11");
+  CU_ASSERT_NEQ_FATAL (ctx, NULL);
+
+  if (EVP_PKEY_keygen_init(ctx) <= 0)
+  {
+    ERR_print_errors_fp (stderr);
+    CU_FAIL ("oops");
+  }
+
+  OSSL_PARAM params[3];
+  params[0] = OSSL_PARAM_construct_utf8_string("ec_paramgen_curve", "P-256", 0);
+  params[1] = OSSL_PARAM_construct_utf8_string("pkcs11_uri", uri, 0);
+  params[2] = OSSL_PARAM_construct_end();
+
+  if (EVP_PKEY_CTX_set_params(ctx, params) <= 0)
+  {
+    ERR_print_errors_fp (stderr);
+    CU_FAIL ("oops");
+  }
+
+  /* Generate the key */
+  if (EVP_PKEY_generate(ctx, &pkey) <= 0)
+  {
+    ERR_print_errors_fp (stderr);
+    CU_FAIL ("oops");
+  }
+  EVP_PKEY_free(pkey);
+  printf("PRIV_KEY_URI=%s\n", uri);
+  return uri;
+#else
+  DDSRT_UNUSED_ARG(token);
+  DDSRT_UNUSED_ARG(name);
+  DDSRT_UNUSED_ARG(id);
+  DDSRT_UNUSED_ARG(pin);
+  return NULL;
+#endif
+}
+
+EVP_PKEY * get_priv_key_pkcs11(const char *uri)
+{
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+  OSSL_STORE_CTX *store_ctx = NULL;
+  OSSL_STORE_INFO *store_info = NULL;
+  EVP_PKEY *pkey = NULL;
+
+  if (!(store_ctx = OSSL_STORE_open(uri, NULL, NULL, NULL, NULL)))
+  {
+    ERR_print_errors_fp (stderr);
+    CU_FAIL ("oops");
+  }
+
+  while (!pkey)
+  {
+    if ((store_info = OSSL_STORE_load(store_ctx)))
+    {
+      if (OSSL_STORE_INFO_get_type(store_info) == OSSL_STORE_INFO_PKEY)
+        pkey = OSSL_STORE_INFO_get1_PKEY(store_info);
+      OSSL_STORE_INFO_free(store_info);
+    }
+    else if (OSSL_STORE_error(store_ctx))
+    {
+      ERR_print_errors_fp (stderr);
+      CU_FAIL ("oops");
+    }
+    else
+      CU_FAIL ("oops");
+  }
+  OSSL_STORE_close(store_ctx);
+
+  return pkey;
+#else
+  DDSRT_UNUSED_ARG(uri);
+  return NULL;
+#endif
+}
+
+X509 * get_certificate_pkcs11(const char *uri)
+{
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+  OSSL_STORE_CTX *store_ctx = NULL;
+  OSSL_STORE_INFO *store_info = NULL;
+  X509 *cert = NULL;
+
+  if (!(store_ctx = OSSL_STORE_open(uri, NULL, NULL, NULL, NULL)))
+  {
+    ERR_print_errors_fp (stderr);
+    CU_FAIL ("oops");
+  }
+
+  while (!cert)
+  {
+    if ((store_info = OSSL_STORE_load(store_ctx)))
+    {
+      if (OSSL_STORE_INFO_get_type(store_info) == OSSL_STORE_INFO_CERT)
+        cert = OSSL_STORE_INFO_get1_CERT(store_info);
+      OSSL_STORE_INFO_free(store_info);
+    }
+    else if (OSSL_STORE_error(store_ctx))
+    {
+      ERR_print_errors_fp (stderr);
+      CU_FAIL ("oops");
+    }
+    else
+      CU_FAIL ("oops");
+  }
+  OSSL_STORE_close(store_ctx);
+
+  return cert;
+#else
+  DDSRT_UNUSED_ARG(uri);
+  return NULL;
+#endif
+}
+
+char * generate_ca_pkcs11(const char *ca_name, const char * ca_priv_key_uri, int not_valid_before, int not_valid_after)
+{
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+  EVP_PKEY *ca_priv_key = get_priv_key_pkcs11(ca_priv_key_uri);
+  return generate_ca_internal(ca_name, ca_priv_key, not_valid_before, not_valid_after);
+#else
+  DDSRT_UNUSED_ARG(ca_name);
+  DDSRT_UNUSED_ARG(ca_priv_key_uri);
+  DDSRT_UNUSED_ARG(not_valid_before);
+  DDSRT_UNUSED_ARG(not_valid_after);
+  return NULL;
+#endif
+}
+
+char * generate_identity_pkcs11(const char * ca_cert_str, const char * ca_priv_key_uri, const char * name, const char * priv_key_uri, int not_valid_before, int not_valid_after, char ** subject)
+{
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+  EVP_PKEY *ca_key_pkey = get_priv_key_pkcs11 (ca_priv_key_uri);
+  EVP_PKEY *id_pkey = get_priv_key_pkcs11 (priv_key_uri);
+  return generate_identity_internal(ca_cert_str, ca_key_pkey, name, id_pkey, not_valid_before, not_valid_after, subject);
+#else
+  DDSRT_UNUSED_ARG(ca_cert_str);
+  DDSRT_UNUSED_ARG(ca_priv_key_uri);
+  DDSRT_UNUSED_ARG(name);
+  DDSRT_UNUSED_ARG(priv_key_uri);
+  DDSRT_UNUSED_ARG(not_valid_before);
+  DDSRT_UNUSED_ARG(not_valid_after);
+  DDSRT_UNUSED_ARG(subject);
+  return NULL;
+#endif
+}
+
+

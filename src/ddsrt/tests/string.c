@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2021 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2021 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <string.h>
 #include <assert.h>
 
@@ -27,7 +26,7 @@ CU_TheoryDataPoints(ddsrt_strcasecmp, basic) = {
 CU_Theory((const char *s1, const char *s2, eq_t e), ddsrt_strcasecmp, basic)
 {
   int r = ddsrt_strcasecmp(s1, s2);
-  CU_ASSERT((e == eq && r == 0) || (e == lt && r < 0) || (e == gt && r > 0));
+  CU_ASSERT ((e == eq && r == 0) || (e == lt && r < 0) || (e == gt && r > 0));
 }
 
 CU_TheoryDataPoints(ddsrt_strncasecmp, basic) = {
@@ -40,7 +39,7 @@ CU_TheoryDataPoints(ddsrt_strncasecmp, basic) = {
 CU_Theory((const char *s1, const char *s2, size_t n, eq_t e), ddsrt_strncasecmp, basic)
 {
   int r = ddsrt_strncasecmp(s1, s2, n);
-  CU_ASSERT((e == eq && r == 0) || (e == lt && r < 0) || (e == gt && r > 0));
+  CU_ASSERT ((e == eq && r == 0) || (e == lt && r < 0) || (e == gt && r > 0));
 }
 
 CU_TheoryDataPoints(ddsrt_strncasecmp, empty) = {
@@ -53,7 +52,7 @@ CU_TheoryDataPoints(ddsrt_strncasecmp, empty) = {
 CU_Theory((const char *s1, const char *s2, size_t n, eq_t e), ddsrt_strncasecmp, empty)
 {
   int r = ddsrt_strncasecmp(s1, s2, n);
-  CU_ASSERT((e == eq && r == 0) || (e == lt && r < 0) || (e == gt && r > 0));
+  CU_ASSERT ((e == eq && r == 0) || (e == lt && r < 0) || (e == gt && r > 0));
 }
 
 CU_TheoryDataPoints(ddsrt_strncasecmp, length) = {
@@ -66,7 +65,7 @@ CU_TheoryDataPoints(ddsrt_strncasecmp, length) = {
 CU_Theory((const char *s1, const char *s2, size_t n, eq_t e), ddsrt_strncasecmp, length)
 {
   int r = ddsrt_strncasecmp(s1, s2, n);
-  CU_ASSERT((e == eq && r == 0) || (e == lt && r < 0) || (e == gt && r > 0));
+  CU_ASSERT ((e == eq && r == 0) || (e == lt && r < 0) || (e == gt && r > 0));
 }
 
 CU_TheoryDataPoints(ddsrt_str_replace, basic) = {
@@ -82,13 +81,13 @@ CU_Theory((const char *str, const char *srch, const char *subst, size_t max, con
   char * r = ddsrt_str_replace(str, srch, subst, max);
   if (exp != NULL)
   {
-    CU_ASSERT_FATAL(r != NULL);
-    CU_ASSERT(strcmp(r, exp) == 0);
+    CU_ASSERT_NEQ_FATAL (r, NULL);
+    CU_ASSERT_STREQ (r, exp);
     ddsrt_free(r);
   }
   else
   {
-    CU_ASSERT_FATAL(r == NULL);
+    CU_ASSERT_EQ_FATAL (r, NULL);
   }
 }
 
@@ -101,7 +100,7 @@ CU_TheoryDataPoints(ddsrt_strndup, exact_length) = {
 CU_Theory((const char *s1, const char *s2, size_t n), ddsrt_strndup, exact_length)
 {
   char *s = ddsrt_strndup(s1, n);
-  CU_ASSERT(s && strcmp(s, s2) == 0);
+  CU_ASSERT_STREQ (s, s2);
   ddsrt_free(s);
 }
 
@@ -114,7 +113,7 @@ CU_TheoryDataPoints(ddsrt_strndup, too_long) = {
 CU_Theory((const char *s1, const char *s2, size_t n), ddsrt_strndup, too_long)
 {
   char *s = ddsrt_strndup(s1, n);
-  CU_ASSERT(s && strcmp(s, s2) == 0);
+  CU_ASSERT_STREQ (s, s2);
   ddsrt_free(s);
 }
 
@@ -127,6 +126,20 @@ CU_TheoryDataPoints(ddsrt_strndup, too_short) = {
 CU_Theory((const char *s1, const char *s2, size_t n), ddsrt_strndup, too_short)
 {
   char *s = ddsrt_strndup(s1, n);
-  CU_ASSERT(s && strcmp(s, s2) == 0);
+  CU_ASSERT_STREQ (s, s2);
   ddsrt_free(s);
 }
+
+CU_TheoryDataPoints(ddsrt_str_trim_ord_space, basic) = {
+  CU_DataPoints(const char *, "C=AT", " C=AT", "C=AT ", "C =AT", "C= AT", " C = AT", " C = AT "),
+  CU_DataPoints(const char *, "C=AT", "C=AT", "C=AT", "C =AT", "C= AT", "C = AT", "C = AT")
+};
+
+CU_Theory((const char *s1, const char *s2), ddsrt_str_trim_ord_space, basic)
+{
+  char str[32] = {'\0'};
+  strcpy(str, s1);
+  char *s = ddsrt_str_trim_ord_space(str);
+  CU_ASSERT_STREQ (s, s2);
+}
+

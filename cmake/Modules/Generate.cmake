@@ -11,13 +11,39 @@
 #
 
 function(IDLC_GENERATE)
-  set(options NO_TYPE_INFO)
-  set(one_value_keywords TARGET DEFAULT_EXTENSIBILITY BASE_DIR)
-  set(multi_value_keywords FILES FEATURES INCLUDES WARNINGS)
+  set(options NO_TYPE_INFO WERROR DEFAULT_NON_NESTED)
+  set(one_value_keywords TARGET DEFAULT_EXTENSIBILITY BASE_DIR OUTPUT_DIR)
+  set(multi_value_keywords FILES FEATURES INCLUDES WARNINGS DEFINES)
   cmake_parse_arguments(
     IDLC "${options}" "${one_value_keywords}" "${multi_value_keywords}" "" ${ARGN})
 
+  if (TARGET CycloneDDS::libidlc)
+    set(_idlc_backend "$<TARGET_FILE:CycloneDDS::libidlc>")
+    if (NOT DEFINED _idlc_generate_skipreport)
+      message(STATUS "Building internal IDLC backend")
+      set(_idlc_generate_skipreport 1 CACHE INTERNAL "")
+    endif()
+    set(_idlc_depends CycloneDDS::libidlc)
+  else()
+    if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND NOT ".so" IN_LIST CMAKE_FIND_LIBRARY_SUFFIXES)
+      # When cross-compiling, find_library looks for libraries using naming conventions of the target,
+      # But here we're trying to find the idlc backend library to run on the host.
+      # For now, building for a Windows target on a Linux host with w64-mingw is supported by this workaround.
+      list(APPEND CMAKE_FIND_LIBRARY_SUFFIXES ".so")
+    endif()
+    find_library(_idlc_backend "cycloneddsidlc" NO_CMAKE_FIND_ROOT_PATH)
+    if (_idlc_backend)
+      if (NOT DEFINED _idlc_generate_skipreport)
+        message(STATUS "Using external IDLC backend: ${_idlc_backend}")
+        set(_idlc_generate_skipreport 1 CACHE INTERNAL "")
+      endif()
+    else()
+      message(FATAL_ERROR "Unable to find IDLC C-backend library: cycloneddsidlc")
+    endif()
+  endif()
+
   set(gen_args
+    BACKEND ${_idlc_backend}
     ${IDLC_UNPARSED_ARGUMENTS}
     TARGET ${IDLC_TARGET}
     BASE_DIR ${IDLC_BASE_DIR}
@@ -25,32 +51,46 @@ function(IDLC_GENERATE)
     FEATURES ${IDLC_FEATURES}
     INCLUDES ${IDLC_INCLUDES}
     WARNINGS ${IDLC_WARNINGS}
-    DEFAULT_EXTENSIBILITY ${IDLC_DEFAULT_EXTENSIBILITY})
+    OUTPUT_DIR ${IDLC_OUTPUT_DIR}
+    DEFAULT_EXTENSIBILITY ${IDLC_DEFAULT_EXTENSIBILITY}
+    DEFINES ${IDLC_DEFINES}
+    DEPENDS ${_idlc_depends})
+
   if(${IDLC_NO_TYPE_INFO})
     list(APPEND gen_args NO_TYPE_INFO)
   endif()
+
+  if(${IDLC_WERROR})
+    list(APPEND gen_args WERROR)
+  endif()
+
+  if(${IDLC_DEFAULT_NON_NESTED})
+    list(APPEND gen_args DEFAULT_NON_NESTED)
+  endif()
+
   idlc_generate_generic(${gen_args})
 endfunction()
 
 function(IDLC_GENERATE_GENERIC)
-  set(options NO_TYPE_INFO)
-  set(one_value_keywords TARGET BACKEND DEFAULT_EXTENSIBILITY BASE_DIR)
-  set(multi_value_keywords FILES FEATURES INCLUDES WARNINGS SUFFIXES DEPENDS)
+  set(options NO_TYPE_INFO WERROR DEFAULT_NON_NESTED)
+  set(one_value_keywords TARGET BACKEND DEFAULT_EXTENSIBILITY BASE_DIR OUTPUT_DIR)
+  set(multi_value_keywords FILES FEATURES INCLUDES WARNINGS SUFFIXES DEFINES DEPENDS)
   cmake_parse_arguments(
     IDLC "${options}" "${one_value_keywords}" "${multi_value_keywords}" "" ${ARGN})
 
   # find idlc binary
-  if(CMAKE_CROSSCOMPILING)
-    find_program(_idlc_executable idlc NO_CMAKE_FIND_ROOT_PATH REQUIRED)
-
-    if(_idlc_executable)
-      set(_idlc_depends "")
+  if(BUILD_IDLC)
+    if (CMAKE_PROJECT_NAME STREQUAL "CycloneDDS")
+      # By using the internal target when building CycloneDDS itself, prevent using an external idlc
+      # This prevents a problem when an installed cyclone is on your prefix path when building cyclone again
+      set(_idlc_executable idlc)
+      set(_idlc_depends idlc)
     else()
-      message(FATAL_ERROR "Cannot find idlc executable")
+      set(_idlc_executable CycloneDDS::idlc)
+      set(_idlc_depends CycloneDDS::idlc)
     endif()
   else()
-    set(_idlc_executable CycloneDDS::idlc)
-    set(_idlc_depends CycloneDDS::idlc)
+    find_program(_idlc_executable "idlc" NO_CMAKE_FIND_ROOT_PATH REQUIRED)
   endif()
 
   if(NOT IDLC_TARGET AND NOT IDLC_FILES)
@@ -78,6 +118,11 @@ function(IDLC_GENERATE_GENERIC)
   endif()
   foreach(_feature ${IDLC_FEATURES})
     list(APPEND IDLC_ARGS "-f" ${_feature})
+  endforeach()
+
+  # add macro definitions (-Dname or -Dname=value)
+  foreach(def ${IDLC_DEFINES})
+    list(APPEND IDLC_ARGS "-D${def}")
   endforeach()
 
   # add directories to include search list
@@ -114,12 +159,29 @@ function(IDLC_GENERATE_GENERIC)
     list(APPEND IDLC_ARGS "-t")
   endif()
 
+  if(IDLC_WERROR)
+    list(APPEND IDLC_ARGS "-Werror")
+  endif()
+
+  if(IDLC_DEFAULT_NON_NESTED)
+    list(APPEND IDLC_ARGS "-nfalse")
+  endif()
+
   if(IDLC_BASE_DIR)
-    file(REAL_PATH ${IDLC_BASE_DIR} _base_dir_abs)
+    if(${CMAKE_VERSION} VERSION_LESS "3.19.0")
+      get_filename_component(_base_dir_abs ${IDLC_BASE_DIR} REALPATH)
+    else()
+      file(REAL_PATH ${IDLC_BASE_DIR} _base_dir_abs)
+    endif()
     list(APPEND IDLC_ARGS "-b${_base_dir_abs}")
   endif()
 
-  set(_dir ${CMAKE_CURRENT_BINARY_DIR})
+  if(IDLC_OUTPUT_DIR)
+    set(_dir ${IDLC_OUTPUT_DIR})
+  else()
+    set(_dir ${CMAKE_CURRENT_BINARY_DIR})
+  endif()
+
   list(APPEND IDLC_ARGS "-o${_dir}")
   set(_target ${IDLC_TARGET})
   foreach(_file ${IDLC_FILES})
@@ -133,7 +195,7 @@ function(IDLC_GENERATE_GENERIC)
   endif()
   set(_outputs "")
   foreach(_file ${_files})
-    get_filename_component(_name ${_file} NAME_WE)
+    get_filename_component(_name ${_file} NAME_WLE)
     get_filename_component(_name_ext ${_file} NAME)
 
     # Determine middle path for directory reconstruction
@@ -144,7 +206,7 @@ function(IDLC_GENERATE_GENERIC)
         message(FATAL_ERROR "Cannot use base dir with different file tree from input file (${_base_dir_abs} to ${_file} yields ${_file_path_rel})")
       endif()
       string(REPLACE ${_name_ext} "" _mid_dir_path ${_file_path_rel})
-      string(REGEX REPLACE "[\\/]$" "" _mid_dir_path ${_mid_dir_path})
+      string(REGEX REPLACE "[\\/]$" "" _mid_dir_path "${_mid_dir_path}")
     endif()
 
     set(_file_outputs "")
@@ -165,8 +227,15 @@ function(IDLC_GENERATE_GENERIC)
   endforeach()
 
   add_custom_target("${_target}_generate" DEPENDS "${_outputs}")
+  if(${CMAKE_GENERATOR} MATCHES "Xcode")
+    set_target_properties("${_target}_generate" PROPERTIES XCODE_GENERATE_SCHEME NO)
+  endif()
+
   add_library(${_target} INTERFACE)
   target_sources(${_target} INTERFACE ${_outputs})
   target_include_directories(${_target} INTERFACE "${_dir}")
   add_dependencies(${_target} "${_target}_generate")
+  if(${CMAKE_GENERATOR} MATCHES "Xcode")
+    set_target_properties("${_target}" PROPERTIES XCODE_GENERATE_SCHEME NO)
+  endif()
 endfunction()

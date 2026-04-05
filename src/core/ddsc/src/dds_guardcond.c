@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2021 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2021 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <assert.h>
 #include <string.h>
 #include "dds__init.h"
@@ -18,7 +17,7 @@
 #include "dds/ddsi/ddsi_iid.h"
 #include "dds/ddsi/ddsi_entity_index.h"
 #include "dds/ddsi/ddsi_entity.h"
-#include "dds/ddsi/q_thread.h"
+#include "dds/ddsi/ddsi_thread.h"
 
 DECL_ENTITY_LOCK_UNLOCK (dds_guardcond)
 
@@ -75,12 +74,12 @@ dds_entity_t dds_create_guardcondition (dds_entity_t owner)
   return rc;
 }
 
-dds_return_t dds_set_guardcondition (dds_entity_t condition, bool triggered)
+dds_return_t dds_set_guardcondition (dds_entity_t guardcond, bool triggered)
 {
   dds_guardcond *gcond;
   dds_return_t rc;
 
-  if ((rc = dds_guardcond_lock (condition, &gcond)) != DDS_RETCODE_OK)
+  if ((rc = dds_guardcond_lock (guardcond, &gcond)) != DDS_RETCODE_OK)
     return rc;
   else
   {
@@ -91,14 +90,14 @@ dds_return_t dds_set_guardcondition (dds_entity_t condition, bool triggered)
       oldst = ddsrt_atomic_ld32 (&e->m_status.m_trigger);
     } while (!ddsrt_atomic_cas32 (&e->m_status.m_trigger, oldst, triggered));
     if (oldst == 0 && triggered != 0)
-      dds_entity_observers_signal (e, triggered);
+      dds_entity_observers_signal (e);
     ddsrt_mutex_unlock (&e->m_observers_lock);
     dds_guardcond_unlock (gcond);
     return DDS_RETCODE_OK;
   }
 }
 
-dds_return_t dds_read_guardcondition (dds_entity_t condition, bool *triggered)
+dds_return_t dds_read_guardcondition (dds_entity_t guardcond, bool *triggered)
 {
   dds_guardcond *gcond;
   dds_return_t rc;
@@ -107,7 +106,7 @@ dds_return_t dds_read_guardcondition (dds_entity_t condition, bool *triggered)
     return DDS_RETCODE_BAD_PARAMETER;
 
   *triggered = false;
-  if ((rc = dds_guardcond_lock (condition, &gcond)) != DDS_RETCODE_OK)
+  if ((rc = dds_guardcond_lock (guardcond, &gcond)) != DDS_RETCODE_OK)
     return rc;
   else
   {
@@ -117,7 +116,7 @@ dds_return_t dds_read_guardcondition (dds_entity_t condition, bool *triggered)
   }
 }
 
-dds_return_t dds_take_guardcondition (dds_entity_t condition, bool *triggered)
+dds_return_t dds_take_guardcondition (dds_entity_t guardcond, bool *triggered)
 {
   dds_guardcond *gcond;
   dds_return_t rc;
@@ -126,7 +125,7 @@ dds_return_t dds_take_guardcondition (dds_entity_t condition, bool *triggered)
     return DDS_RETCODE_BAD_PARAMETER;
 
   *triggered = false;
-  if ((rc = dds_guardcond_lock (condition, &gcond)) != DDS_RETCODE_OK)
+  if ((rc = dds_guardcond_lock (guardcond, &gcond)) != DDS_RETCODE_OK)
     return rc;
   else
   {

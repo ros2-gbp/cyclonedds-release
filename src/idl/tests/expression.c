@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2020 to 2021 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2020 to 2021 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -75,26 +74,25 @@ test_expr(
   idl_literal_t *cv;
 
   r = idl_create_pstate(0u, NULL, &pstate);
-  CU_ASSERT_EQUAL_FATAL(r, IDL_RETCODE_OK);
+  CU_ASSERT_EQ_FATAL (r, IDL_RETCODE_OK);
   r = idl_parse_string(pstate, str);
-  CU_ASSERT_EQUAL(r, ret);
+  CU_ASSERT_EQ (r, ret);
   if (r != IDL_RETCODE_OK) {
     idl_delete_pstate(pstate);
     return;
   }
-  CU_ASSERT_PTR_NOT_NULL_FATAL(pstate);
-  assert(pstate);
+  CU_ASSERT_NEQ_FATAL (pstate, NULL);
   c = (void *)pstate->root;
   do {
     if (idl_is_const(c) && strcmp(idl_identifier(c), "x") == 0)
       break;
     c = idl_next(c);
   } while (c);
-  CU_ASSERT_FATAL(idl_is_const(c));
-  assert(c);
+  CU_ASSERT_FATAL (idl_is_const(c));
+  CU_ASSERT_NEQ_FATAL (c, NULL);
   cv = c->const_expr;
-  CU_ASSERT_FATAL(idl_is_literal(cv));
-  CU_ASSERT(idl_compare(cv, exp) == IDL_EQUAL);
+  CU_ASSERT_FATAL (idl_is_literal(cv));
+  CU_ASSERT_EQ (idl_compare(cv, exp), IDL_EQUAL);
   idl_delete_pstate(pstate);
 }
 
