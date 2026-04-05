@@ -1,34 +1,31 @@
-/*
- * Copyright(c) 2006 to 2022 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
-#ifndef _DDS_TYPES_H_
-#define _DDS_TYPES_H_
+// Copyright(c) 2006 to 2022 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
+#ifndef DDS__TYPES_H
+#define DDS__TYPES_H
 
 /* DDS internal type definitions */
 
 #include "dds/dds.h"
 #include "dds/ddsrt/sync.h"
-#include "dds/ddsi/q_rtps.h"
+#include "dds/ddsi/ddsi_protocol.h"
 #include "dds/ddsi/ddsi_domaingv.h"
+#ifdef DDS_HAS_TOPIC_DISCOVERY
+#include "dds/ddsi/ddsi_typewrap.h"
+#endif
 #include "dds/ddsrt/avl.h"
 #include "dds/ddsi/ddsi_builtin_topic_if.h"
+#include "dds/ddsc/dds_psmx.h"
 #include "dds__handles.h"
+#include "dds__loaned_sample.h"
 
-#ifdef DDS_HAS_SHM
-#include "dds/ddsi/ddsi_shm_transport.h"
-#include "iceoryx_binding_c/publisher.h"
-#include "iceoryx_binding_c/subscriber.h"
-#include "shm__monitor.h"
-#define MAX_PUB_LOANS 8
-#endif
 
 #if defined (__cplusplus)
 extern "C" {
@@ -46,6 +43,7 @@ struct dds_ktopic;
 struct dds_readcond;
 struct dds_guardcond;
 struct dds_statuscond;
+struct dds_loan_pool;
 
 struct ddsi_sertype;
 struct ddsi_rhc;
@@ -124,7 +122,7 @@ typedef struct dds_entity_deriver {
 } dds_entity_deriver;
 
 struct dds_waitset;
-typedef void (*dds_entity_callback_t) (struct dds_waitset *observer, dds_entity_t observed, uint32_t status);
+typedef void (*dds_entity_callback_t) (struct dds_waitset *observer, dds_entity_t observed);
 typedef bool (*dds_entity_attach_callback_t) (struct dds_waitset *observer, struct dds_entity *observed, void *attach_arg);
 typedef void (*dds_entity_delete_callback_t) (struct dds_waitset *observer, dds_entity_t observed);
 
@@ -188,44 +186,77 @@ extern const struct dds_entity_deriver dds_entity_deriver_domain;
 extern const struct dds_entity_deriver dds_entity_deriver_cyclonedds;
 extern const struct dds_entity_deriver *dds_entity_deriver_table[];
 
+/** @notincomponent */
 void dds_entity_deriver_dummy_interrupt (struct dds_entity *e);
+
+/** @notincomponent */
 void dds_entity_deriver_dummy_close (struct dds_entity *e);
+
+/** @notincomponent */
 dds_return_t dds_entity_deriver_dummy_delete (struct dds_entity *e);
+
+/** @notincomponent */
 dds_return_t dds_entity_deriver_dummy_set_qos (struct dds_entity *e, const dds_qos_t *qos, bool enabled);
+
+/** @notincomponent */
 dds_return_t dds_entity_deriver_dummy_validate_status (uint32_t mask);
+
+/** @notincomponent */
 struct dds_statistics *dds_entity_deriver_dummy_create_statistics (const struct dds_entity *e);
+
+/** @notincomponent */
 void dds_entity_deriver_dummy_refresh_statistics (const struct dds_entity *e, struct dds_statistics *s);
 
+/** @notincomponent */
 void dds_entity_deriver_dummy_invoke_cbs_for_pending_events(struct dds_entity *e, uint32_t status);
 
-DDS_INLINE_EXPORT inline void dds_entity_deriver_interrupt (struct dds_entity *e) {
+/** @component generic_entity */
+inline void dds_entity_deriver_interrupt (struct dds_entity *e) {
   (dds_entity_deriver_table[e->m_kind]->interrupt) (e);
 }
-DDS_INLINE_EXPORT inline void dds_entity_deriver_close (struct dds_entity *e) {
+
+/** @component generic_entity */
+inline void dds_entity_deriver_close (struct dds_entity *e) {
   (dds_entity_deriver_table[e->m_kind]->close) (e);
 }
-DDS_INLINE_EXPORT inline dds_return_t dds_entity_deriver_delete (struct dds_entity *e) {
+
+/** @component generic_entity */
+inline dds_return_t dds_entity_deriver_delete (struct dds_entity *e) {
   return dds_entity_deriver_table[e->m_kind]->delete (e);
 }
-DDS_INLINE_EXPORT inline dds_return_t dds_entity_deriver_set_qos (struct dds_entity *e, const dds_qos_t *qos, bool enabled) {
+
+/** @component generic_entity */
+inline dds_return_t dds_entity_deriver_set_qos (struct dds_entity *e, const dds_qos_t *qos, bool enabled) {
   return dds_entity_deriver_table[e->m_kind]->set_qos (e, qos, enabled);
 }
-DDS_INLINE_EXPORT inline dds_return_t dds_entity_deriver_validate_status (struct dds_entity *e, uint32_t mask) {
+
+/** @component generic_entity */
+inline dds_return_t dds_entity_deriver_validate_status (struct dds_entity *e, uint32_t mask) {
   return dds_entity_deriver_table[e->m_kind]->validate_status (mask);
 }
-DDS_INLINE_EXPORT inline bool dds_entity_supports_set_qos (struct dds_entity *e) {
+
+/** @component generic_entity */
+inline bool dds_entity_supports_set_qos (struct dds_entity *e) {
   return dds_entity_deriver_table[e->m_kind]->set_qos != dds_entity_deriver_dummy_set_qos;
 }
-DDS_INLINE_EXPORT inline bool dds_entity_supports_validate_status (struct dds_entity *e) {
+
+/** @component generic_entity */
+inline bool dds_entity_supports_validate_status (struct dds_entity *e) {
   return dds_entity_deriver_table[e->m_kind]->validate_status != dds_entity_deriver_dummy_validate_status;
 }
-DDS_INLINE_EXPORT inline struct dds_statistics *dds_entity_deriver_create_statistics (const struct dds_entity *e) {
+
+/** @component statistics */
+inline struct dds_statistics *dds_entity_deriver_create_statistics (const struct dds_entity *e) {
   return dds_entity_deriver_table[e->m_kind]->create_statistics (e);
 }
-DDS_INLINE_EXPORT inline void dds_entity_deriver_refresh_statistics (const struct dds_entity *e, struct dds_statistics *s) {
+
+/** @component statistics */
+inline void dds_entity_deriver_refresh_statistics (const struct dds_entity *e, struct dds_statistics *s) {
   dds_entity_deriver_table[e->m_kind]->refresh_statistics (e, s);
 }
-DDS_INLINE_EXPORT inline void dds_entity_deriver_invoke_cbs_for_pending_events (struct dds_entity *e, uint32_t status) {
+
+/** @component entity_listener */
+inline void dds_entity_deriver_invoke_cbs_for_pending_events (struct dds_entity *e, uint32_t status) {
   dds_entity_deriver_table[e->m_kind]->invoke_cbs_for_pending_events (e, status);
 }
 
@@ -239,17 +270,30 @@ typedef struct dds_cyclonedds_entity {
   struct ddsi_threadmon *threadmon;
 } dds_cyclonedds_entity;
 
+enum dds_psmx_interface_version {
+  DDS_PSMX_INTERFACE_VERSION_0_BINCOMPAT,
+  DDS_PSMX_INTERFACE_VERSION_0,
+  DDS_PSMX_INTERFACE_VERSION_1,
+};
+
+struct dds_psmx_set_elem {
+  struct dds_psmx_int *instance;
+  enum dds_psmx_interface_version interface_version;
+  ddsrt_dynlib_t lib_handle;
+};
+
+struct dds_psmx_set {
+  uint32_t length;
+  struct dds_psmx_set_elem elems[DDS_MAX_PSMX_INSTANCES];
+};
+
 typedef struct dds_domain {
   struct dds_entity m_entity;
 
   ddsrt_avl_node_t m_node; /* for dds_global.m_domains */
   dds_domainid_t m_id;
 
-#ifdef DDS_HAS_SHM
-  shm_monitor_t m_shm_monitor;
-#endif
-
-  struct cfgst *cfgst; // NULL if config initializer provided
+  struct ddsi_cfgst *cfgst; // NULL if config initializer provided
 
   struct ddsi_sertype *builtin_participant_type;
 #ifdef DDS_HAS_TOPIC_DISCOVERY
@@ -267,6 +311,11 @@ typedef struct dds_domain {
 
   struct ddsi_builtin_topic_interface btif;
   struct ddsi_domaingv gv;
+
+  /* Transmit side: pool for the serializer & transmit messages */
+  struct dds_serdatapool *serpool;
+
+  struct dds_psmx_set psmx_instances;
 } dds_domain;
 
 typedef struct dds_subscriber {
@@ -308,6 +357,11 @@ struct ktopic_type_guid {
 };
 #endif
 
+struct dds_psmx_topics_set {
+  uint32_t length;
+  struct dds_psmx_topic_int *topics[DDS_MAX_PSMX_INSTANCES];
+};
+
 typedef struct dds_ktopic {
   /* name -> <QoS> mapping for topics, part of the participant
      and protected by the participant's lock (including the actual QoS
@@ -324,6 +378,7 @@ typedef struct dds_ktopic {
 #ifdef DDS_HAS_TOPIC_DISCOVERY
   struct ddsrt_hh *topic_guid_map; /* mapping of this ktopic to ddsi topics */
 #endif
+  struct dds_psmx_topics_set psmx_topics;
 } dds_ktopic;
 
 typedef struct dds_participant {
@@ -332,22 +387,25 @@ typedef struct dds_participant {
   ddsrt_avl_tree_t m_ktopics; /* [m_entity.m_mutex] */
 } dds_participant;
 
+struct dds_psmx_endpoints_set {
+  uint32_t length;
+  struct dds_psmx_endpoint_int *endpoints[DDS_MAX_PSMX_INSTANCES];
+};
+
+struct dds_endpoint {
+  struct dds_psmx_endpoints_set psmx_endpoints;
+};
+
 typedef struct dds_reader {
   struct dds_entity m_entity;
+  struct dds_endpoint m_endpoint;
   struct dds_topic *m_topic; /* refc'd, constant, lock(rd) -> lock(tp) allowed */
   struct dds_rhc *m_rhc; /* aliases m_rd->rhc with a wider interface, FIXME: but m_rd owns it for resource management */
   struct ddsi_reader *m_rd;
-  bool m_loan_out;
-  void *m_loan;
-  uint32_t m_loan_size;
-  unsigned m_wrapped_sertopic : 1; /* set iff reader's topic is a wrapped ddsi_sertopic for backwards compatibility */
-#ifdef DDS_HAS_SHM
-  iox_sub_context_t m_iox_sub_context;
-  iox_sub_t m_iox_sub;
-#endif
+  struct dds_loan_pool *m_loans; /* administration of outstanding loans */
+  struct dds_loan_pool *m_heap_loan_cache;
 
   /* Status metrics */
-
   dds_sample_rejected_status_t m_sample_rejected_status;
   dds_liveliness_changed_status_t m_liveliness_changed_status;
   dds_requested_deadline_missed_status_t m_requested_deadline_missed_status;
@@ -358,15 +416,14 @@ typedef struct dds_reader {
 
 typedef struct dds_writer {
   struct dds_entity m_entity;
+  struct dds_endpoint m_endpoint;
   struct dds_topic *m_topic; /* refc'd, constant, lock(wr) -> lock(tp) allowed */
-  struct nn_xpack *m_xp;
+  struct ddsi_xpack *m_xp;
   struct ddsi_writer *m_wr;
-  struct whc *m_whc; /* FIXME: ownership still with underlying DDSI writer (cos of DDSI built-in writers )*/
+  struct ddsi_whc *m_whc; /* FIXME: ownership still with underlying DDSI writer (cos of DDSI built-in writers )*/
   bool whc_batch; /* FIXME: channels + latency budget */
-#ifdef DDS_HAS_SHM
-  iox_pub_t m_iox_pub;
-  void *m_iox_pub_loans[MAX_PUB_LOANS];
-#endif
+  struct dds_loan_pool *m_loans; /* administration of associated loans */
+  ddsi_protocol_version_t protocol_version; /* copy of configured protocol version */
 
   /* Status metrics */
 
@@ -417,15 +474,17 @@ typedef struct dds_waitset {
      acquired while holding an ancestor's lock, but a waitset must be capable of triggering on
      events on its parent */
   ddsrt_mutex_t wait_lock;
-  ddsrt_cond_t wait_cond;
+
+  /* etime: dds_waitset_wait timeout */
+  ddsrt_cond_etime_t wait_cond;
   size_t nentities;         /* [wait_lock] */
   size_t ntriggered;        /* [wait_lock] */
   dds_attachment *entities; /* [wait_lock] 0 .. ntriggered are triggred, ntriggred .. nentities are not */
 } dds_waitset;
 
-DDS_EXPORT extern dds_cyclonedds_entity dds_global;
+extern dds_cyclonedds_entity dds_global;
 
 #if defined (__cplusplus)
 }
 #endif
-#endif
+#endif /* DDS__TYPES_H */

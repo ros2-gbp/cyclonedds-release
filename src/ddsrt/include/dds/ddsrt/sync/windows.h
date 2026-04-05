@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2019 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2019 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #ifndef DDSRT_WINDOWS_SYNC_H
 #define DDSRT_WINDOWS_SYNC_H
 
@@ -19,6 +18,18 @@ extern "C" {
 typedef struct {
     CONDITION_VARIABLE cond;
 } ddsrt_cond_t;
+
+typedef struct {
+    CONDITION_VARIABLE cond;
+} ddsrt_cond_wctime_t;
+
+typedef struct {
+    CONDITION_VARIABLE cond;
+} ddsrt_cond_mtime_t;
+
+typedef struct {
+    CONDITION_VARIABLE cond;
+} ddsrt_cond_etime_t;
 
 typedef struct {
     SRWLOCK lock;

@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2022 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2022 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -28,8 +27,7 @@
 #include "dds/ddsi/ddsi_serdata.h"
 #include "dds/ddsi/ddsi_threadmon.h"
 #include "dds/ddsi/ddsi_entity.h"
-#include "dds/ddsi/ddsi_config_impl.h"
-#include "dds/ddsi/q_gc.h"
+#include "dds/ddsi/ddsi_gc.h"
 #include "dds/ddsi/ddsi_domaingv.h"
 #include "dds/version.h"
 
@@ -57,7 +55,7 @@ static ddsrt_atomic_uint32_t dds_state = DDSRT_ATOMIC_UINT32_INIT (CDDS_STATE_ZE
 
 static void common_cleanup (void)
 {
-  if (thread_states_fini ())
+  if (ddsi_thread_states_fini ())
     dds_handle_server_fini ();
 
   ddsi_iid_fini ();
@@ -100,9 +98,16 @@ dds_return_t dds_init (void)
     case CDDS_STATE_READY:
       assert (dds_global.m_entity.m_hdllink.hdl == DDS_CYCLONEDDS_HANDLE);
       ddsrt_mutex_unlock (init_mutex);
+      // Undo the ddsrt init counter increment: some other thread initialized
+      // the library and we continue with that pre-initialized state.  At some
+      // point dds_fini() will be called, and that will undo the ddsrt_fini()
+      // associated with the library initialization.
+      ddsrt_fini ();
       return DDS_RETCODE_OK;
     case CDDS_STATE_ZERO:
       ddsrt_atomic_st32 (&dds_state, CDDS_STATE_STARTING);
+      // Initializing Cyclone, this thread did the ddsrt_init() call that will
+      // be undone by dds_fini()
       break;
     default:
       ddsrt_mutex_unlock (init_mutex);
@@ -113,7 +118,7 @@ dds_return_t dds_init (void)
   ddsrt_mutex_init (&dds_global.m_mutex);
   ddsrt_cond_init (&dds_global.m_cond);
   ddsi_iid_init ();
-  thread_states_init ();
+  ddsi_thread_states_init ();
 
   if (dds_handle_server_init () != DDS_RETCODE_OK)
   {

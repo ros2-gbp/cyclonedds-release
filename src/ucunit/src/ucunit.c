@@ -26,6 +26,41 @@ static struct CU_Suite *cur_suite;
 static struct CU_Test *cur_test;
 static jmp_buf fatal_jmpbuf;
 static uint32_t failure_count;
+static CU_ErrorAction error_action;
+
+void CU_set_error_action (CU_ErrorAction action)
+{
+  error_action = action;
+}
+
+void CU_fatal (void)
+{
+  if (error_action == CUEA_FAIL)
+    longjmp (fatal_jmpbuf, 1);
+  else
+    abort ();
+}
+
+void CU_hexdump (FILE *fp, const unsigned char *msg, const size_t len)
+{
+  for (size_t off16 = 0; off16 < len; off16 += 16)
+  {
+    fprintf (fp, "%04x ", (unsigned) off16);
+    size_t off1;
+    for (off1 = 0; off1 < 16 && off16 + off1 < len; off1++)
+      fprintf (fp, "%s %02x", (off1 == 8) ? " " : "", msg[off16 + off1]);
+    for (; off1 < 16; off1++)
+      fprintf (fp, "%s   ", (off1 == 8) ? " " : "");
+    fprintf (fp, "  |");
+    for (off1 = 0; off1 < 16 && off16 + off1 < len; off1++)
+    {
+      unsigned char c = msg[off16 + off1];
+      fprintf (fp, "%c", (c >= 32 && c < 127) ? c : '.');
+    }
+    fprintf (fp, "|\n");
+  }
+  fflush (fp);
+}
 
 void CU_assertImplementation (bool value, int line, const char *expr, const char *file, const char *something, bool isfatal)
 {
@@ -39,6 +74,8 @@ void CU_assertImplementation (bool value, int line, const char *expr, const char
   failure_count++;
   cur_test->nfailures++;
   struct CU_FailureRecord *fr = malloc (sizeof (*fr));
+  if (fr == NULL)
+    abort ();
   fr->file = file;
   fr->line = line;
   fr->expr = expr;
@@ -50,11 +87,12 @@ void CU_assertImplementation (bool value, int line, const char *expr, const char
   cur_test->latest_failure = fr;
 
   if (isfatal)
-    longjmp (fatal_jmpbuf, 1);
+    CU_fatal ();
 }
 
 CU_ErrorCode CU_initialize_registry (void)
 {
+  error_action = CUEA_FAIL;
   output_filename_root = NULL;
   failure_count = 0;
   last_error = CUE_SUCCESS;
@@ -78,6 +116,8 @@ static char *ucunit_strdup (const char *s)
 {
   size_t l = strlen (s) + 1;
   char *n = malloc (l);
+  if (n == NULL)
+    abort ();
   memcpy (n, s, l);
   return n;
 }
@@ -90,6 +130,8 @@ CU_pSuite CU_add_suite (const char *strName, CU_InitializeFunc pInit, CU_Cleanup
   if (cur != NULL)
     return cur;
   cur = malloc (sizeof (*cur));
+  if (cur == NULL)
+    abort ();
   cur->name = ucunit_strdup (strName);
   cur->init = pInit;
   cur->cleanup = pClean;
@@ -130,6 +172,8 @@ CU_pTest CU_add_test (CU_pSuite pSuite, const char *strName, CU_TestFunc pTestFu
   if (cur != NULL)
     return cur;
   cur = malloc (sizeof (*cur));
+  if (cur == NULL)
+    abort ();
   cur->name = ucunit_strdup (strName);
   cur->testfunc = pTestFunc;
   cur->next = NULL;

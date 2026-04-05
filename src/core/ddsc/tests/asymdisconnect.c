@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2022 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2022 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include "test_common.h"
 #include "test_oneliner.h"
 
@@ -37,7 +36,7 @@ CU_Test (ddsc_asymdisconnect, reader_keeps_nacking)
     // - this really is just a little devil dropping some packets
     "  setflags(r) w'"
     // restoring hearing triggers discovery
-    "  hearing! P"
+    "  normal! P"
     // r should see w' again
     // - r will send a pre-emptive ACKNACK, w' will respond with heartbeat
     // - r will then send ACKNACKs requesting retransmit, w' forgets to send the data
@@ -59,10 +58,10 @@ CU_Test (ddsc_asymdisconnect, reader_keeps_nacking)
     "  setflags() w'"
     // without the fix and with flags cleared, disconnecting and reconnecting fixes it:
     //   sleep 2 !?!da take{} r // so no data!
-    //   deaf! P ?sm r hearing! P ?sm r // dis-/reconnect
+    //   deaf! P ?sm r normal! P ?sm r // dis-/reconnect
     //   ?da r take{(1,0,0)} r
     // with fix present:
     "  ?da r take{(1,0,0)} r"
     , config);
-  CU_ASSERT (result > 0);
+  CU_ASSERT_GT (result, 0);
 }

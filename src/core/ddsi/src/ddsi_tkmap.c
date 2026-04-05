@@ -1,30 +1,28 @@
-/*
- * Copyright(c) 2006 to 2022 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2022 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <assert.h>
 #include <string.h>
 
 #include "dds/ddsrt/heap.h"
 #include "dds/ddsrt/log.h"
 #include "dds/ddsrt/sync.h"
-#include "dds/ddsi/q_thread.h"
-#include "dds/ddsi/q_unused.h"
-#include "dds/ddsi/q_gc.h"
+#include "dds/ddsrt/hopscotch.h"
+#include "dds/ddsi/ddsi_unused.h"
 #include "dds/ddsi/ddsi_domaingv.h"
-#include "dds/ddsi/ddsi_config_impl.h"
 #include "dds/ddsi/ddsi_iid.h"
 #include "dds/ddsi/ddsi_tkmap.h"
-#include "dds/ddsi/ddsi_cdrstream.h"
 #include "dds/ddsi/ddsi_serdata.h"
-#include "dds/ddsrt/hopscotch.h"
+#include "ddsi__thread.h"
+#include "ddsi__gc.h"
+#include "dds/cdr/dds_cdrstream.h"
 
 #define REFC_DELETE 0x80000000
 #define REFC_MASK   0x0fffffff
@@ -37,33 +35,33 @@ struct ddsi_tkmap
   ddsrt_cond_t m_cond;
 };
 
-static void gc_buckets_impl (struct gcreq *gcreq)
+static void gc_buckets_impl (struct ddsi_gcreq *gcreq)
 {
   ddsrt_free (gcreq->arg);
-  gcreq_free (gcreq);
+  ddsi_gcreq_free (gcreq);
 }
 
 static void gc_buckets (void *a, void *arg)
 {
   const struct ddsi_tkmap *tkmap = arg;
-  struct gcreq *gcreq = gcreq_new (tkmap->gv->gcreq_queue, gc_buckets_impl);
+  struct ddsi_gcreq *gcreq = ddsi_gcreq_new (tkmap->gv->gcreq_queue, gc_buckets_impl);
   gcreq->arg = a;
-  gcreq_enqueue (gcreq);
+  ddsi_gcreq_enqueue (gcreq);
 }
 
-static void gc_tkmap_instance_impl (struct gcreq *gcreq)
+static void gc_tkmap_instance_impl (struct ddsi_gcreq *gcreq)
 {
   struct ddsi_tkmap_instance *tk = gcreq->arg;
   ddsi_serdata_unref (tk->m_sample);
   dds_free (tk);
-  gcreq_free (gcreq);
+  ddsi_gcreq_free (gcreq);
 }
 
-static void gc_tkmap_instance (struct ddsi_tkmap_instance *tk, struct gcreq_queue *gcreq_queue)
+static void gc_tkmap_instance (struct ddsi_tkmap_instance *tk, struct ddsi_gcreq_queue *gcreq_queue)
 {
-  struct gcreq *gcreq = gcreq_new (gcreq_queue, gc_tkmap_instance_impl);
+  struct ddsi_gcreq *gcreq = ddsi_gcreq_new (gcreq_queue, gc_tkmap_instance_impl);
   gcreq->arg = tk;
-  gcreq_enqueue (gcreq);
+  ddsi_gcreq_enqueue (gcreq);
 }
 
 static uint32_t dds_tk_hash (const struct ddsi_tkmap_instance *inst)
@@ -76,12 +74,12 @@ static uint32_t dds_tk_hash_void (const void *inst)
   return dds_tk_hash (inst);
 }
 
-static int dds_tk_equals (const struct ddsi_tkmap_instance *a, const struct ddsi_tkmap_instance *b)
+static bool dds_tk_equals (const struct ddsi_tkmap_instance *a, const struct ddsi_tkmap_instance *b)
 {
-  return (a->m_sample->ops == b->m_sample->ops) ? ddsi_serdata_eqkey (a->m_sample, b->m_sample) : 0;
+  return a->m_sample->ops == b->m_sample->ops && ddsi_serdata_eqkey (a->m_sample, b->m_sample);
 }
 
-static int dds_tk_equals_void (const void *a, const void *b)
+static bool dds_tk_equals_void (const void *a, const void *b)
 {
   return dds_tk_equals (a, b);
 }
@@ -116,7 +114,7 @@ uint64_t ddsi_tkmap_lookup (struct ddsi_tkmap * map, const struct ddsi_serdata *
 {
   struct ddsi_tkmap_instance dummy;
   struct ddsi_tkmap_instance * tk;
-  assert (thread_is_awake ());
+  assert (ddsi_thread_is_awake ());
   dummy.m_sample = (struct ddsi_serdata *) sd;
   tk = ddsrt_chh_lookup (map->m_hh, &dummy);
   return (tk) ? tk->m_iid : DDS_HANDLE_NIL;
@@ -128,7 +126,7 @@ struct ddsi_tkmap_instance *ddsi_tkmap_find_by_id (struct ddsi_tkmap *map, uint6
   struct ddsrt_chh_iter it;
   struct ddsi_tkmap_instance *tk;
   uint32_t refc;
-  assert (thread_is_awake ());
+  assert (ddsi_thread_is_awake ());
   for (tk = ddsrt_chh_iter_first (map->m_hh, &it); tk; tk = ddsrt_chh_iter_next (&it))
     if (tk->m_iid == iid)
       break;
@@ -160,7 +158,7 @@ struct ddsi_tkmap_instance *ddsi_tkmap_find (struct ddsi_tkmap *map, struct ddsi
   struct ddsi_tkmap_instance dummy;
   struct ddsi_tkmap_instance *tk;
 
-  assert (thread_is_awake ());
+  assert (ddsi_thread_is_awake ());
   dummy.m_sample = sd;
 retry:
   if ((tk = ddsrt_chh_lookup(map->m_hh, &dummy)) != NULL)
@@ -214,7 +212,7 @@ void ddsi_tkmap_instance_ref (struct ddsi_tkmap_instance *tk)
 void ddsi_tkmap_instance_unref (struct ddsi_tkmap *map, struct ddsi_tkmap_instance *tk)
 {
   uint32_t old, new;
-  assert (thread_is_awake ());
+  assert (ddsi_thread_is_awake ());
   do {
     old = ddsrt_atomic_ld32(&tk->m_refc);
     if (old == 1)
@@ -228,7 +226,7 @@ void ddsi_tkmap_instance_unref (struct ddsi_tkmap *map, struct ddsi_tkmap_instan
   if (new == REFC_DELETE)
   {
     /* Remove from hash table */
-    int removed = ddsrt_chh_remove(map->m_hh, tk);
+    bool removed = ddsrt_chh_remove(map->m_hh, tk);
     assert (removed);
     (void)removed;
 

@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2022 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2022 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <assert.h>
 #include <string.h>
 
@@ -17,18 +16,16 @@
 #include "dds/ddsrt/time.h"
 #include "dds/ddsrt/threads.h"
 #include "dds/ddsrt/hopscotch.h"
-
 #include "dds/ddsi/ddsi_threadmon.h"
-#include "dds/ddsi/ddsi_config_impl.h"
-#include "dds/ddsi/q_log.h"
-#include "dds/ddsi/q_thread.h"
-#include "dds/ddsi/q_unused.h"
+#include "dds/ddsi/ddsi_unused.h"
 #include "dds/ddsi/ddsi_domaingv.h" /* for mattr, cattr */
-#include "dds/ddsi/q_receive.h"
+#include "ddsi__log.h"
+#include "ddsi__thread.h"
+#include "ddsi__receive.h"
 
 struct alive_vt {
   bool alive;
-  vtime_t vt;
+  ddsi_vtime_t vt;
 };
 
 struct threadmon_domain {
@@ -48,8 +45,8 @@ struct ddsi_threadmon {
   bool noprogress_log_stacktraces;
 
   ddsrt_mutex_t lock;
-  ddsrt_cond_t cond;
-  struct thread_state *thrst;
+  ddsrt_cond_mtime_t cond; // mtime: thread progress is absent when sleeping
+  struct ddsi_thread_state *thrst;
   struct ddsrt_hh *domains;
 };
 
@@ -81,19 +78,20 @@ static void update_av_ary (struct ddsi_threadmon *sl, uint32_t nthreads)
   }
 }
 
-static uint32_t threadmon_thread (struct ddsi_threadmon *sl)
+static uint32_t threadmon_thread (void *vsl)
 {
+  struct ddsi_threadmon * const sl = vsl;
   /* Do not check more often than once every 100ms (no particular
      reason why it has to be 100ms), regardless of the lease settings.
      Note: can't trust sl->self, may have been scheduled before the
      assignment. */
-  ddsrt_mtime_t tlast = { 0 };
+  ddsrt_mtime_t tlast = { 0 }, tnext = ddsrt_mtime_add_duration (ddsrt_time_monotonic (), sl->liveliness_monitoring_interval);
   bool was_alive = true;
   ddsrt_mutex_lock (&sl->lock);
   while (sl->keepgoing)
   {
     /* Guard against spurious wakeups by checking only when cond_waitfor signals a timeout */
-    if (ddsrt_cond_waitfor (&sl->cond, &sl->lock, sl->liveliness_monitoring_interval))
+    if (ddsrt_cond_mtime_waituntil (&sl->cond, &sl->lock, tnext))
       continue;
     /* Check progress only if enough time has passed: there is no
        guarantee that os_cond_timedwait wont ever return early, and we
@@ -101,6 +99,10 @@ static uint32_t threadmon_thread (struct ddsi_threadmon *sl)
     ddsrt_mtime_t tnow = ddsrt_time_monotonic ();
     if (tnow.v < tlast.v)
       continue;
+
+    /* Based the time of the next round on tnow rather than on tnext: that way we won't start
+       spinning if we're woefully behind schedule */
+    tnext = ddsrt_mtime_add_duration (tnow, sl->liveliness_monitoring_interval);
 
     /* Scan threads to classify them as alive (sleeping or making progress) or dead (stuck in the same
        "awake" state), ignoring those used in domains that do not have a liveliness monitoring enabled
@@ -110,29 +112,29 @@ static uint32_t threadmon_thread (struct ddsi_threadmon *sl)
        considered "alive".  An awake one may be switching to another domain immediately after loading
        the domain here, but in that case it is making progress -- and so also mostly ignored.  (This
        is a similar argument to that used for the GC). */
-    struct thread_states_list * const tslist = ddsrt_atomic_ldvoidp (&thread_states.thread_states_head);
+    struct ddsi_thread_states_list * const tslist = ddsrt_atomic_ldvoidp (&thread_states.thread_states_head);
     update_av_ary (sl, tslist->nthreads);
     uint32_t n_not_alive = 0;
     tlast = tnow;
     struct alive_vt *av_ary_cur = sl->av_ary;
-    for (struct thread_states_list *cur = tslist; cur; cur = cur->next)
+    for (struct ddsi_thread_states_list *cur = tslist; cur; cur = cur->next)
     {
-      for (uint32_t i = 0; i < THREAD_STATE_BATCH; i++, av_ary_cur++)
+      for (uint32_t i = 0; i < DDSI_THREAD_STATE_BATCH; i++, av_ary_cur++)
       {
         const uint32_t threadidx = (uint32_t) (av_ary_cur - sl->av_ary);
         assert (threadidx < tslist->nthreads);
-        struct thread_state * const thrst = &cur->thrst[i];
-        if (thrst->state == THREAD_STATE_ZERO)
+        struct ddsi_thread_state * const thrst = &cur->thrst[i];
+        if (thrst->state == DDSI_THREAD_STATE_ZERO)
           continue;
 
-        vtime_t vt = ddsrt_atomic_ld32 (&thrst->vtime);
+        ddsi_vtime_t vt = ddsrt_atomic_ld32 (&thrst->vtime);
         ddsrt_atomic_fence_ldld ();
         struct ddsi_domaingv const * const gv = ddsrt_atomic_ldvoidp (&thrst->gv);
         struct threadmon_domain *tmdom = find_domain (sl, gv);
         if (tmdom == NULL)
           continue;
 
-        bool alive = vtime_asleep_p (vt) || vtime_asleep_p (av_ary_cur->vt) || vtime_gt (vt, av_ary_cur->vt);
+        bool alive = ddsi_vtime_asleep_p (vt) || ddsi_vtime_asleep_p (av_ary_cur->vt) || ddsi_vtime_gt (vt, av_ary_cur->vt);
         n_not_alive += (unsigned) !alive;
         tmdom->n_not_alive += (unsigned) !alive;
 
@@ -177,7 +179,7 @@ static uint32_t threadmon_thread (struct ddsi_threadmon *sl)
           if (!sl->noprogress_log_stacktraces)
             DDS_CLOG (~DDS_LC_FATAL, &tmdom->gv->logconfig, "-- stack traces requested, but traces disabled --\n");
           else
-            log_stack_traces (&tmdom->gv->logconfig, tmdom->gv);
+            ddsi_log_stack_traces (&tmdom->gv->logconfig, tmdom->gv);
         }
         was_alive = false;
       }
@@ -217,7 +219,7 @@ static uint32_t threadmon_domain_hash (const void *va)
   return v >> 16;
 }
 
-static int threadmon_domain_eq (const void *va, const void *vb)
+static bool threadmon_domain_eq (const void *va, const void *vb)
 {
   const struct threadmon_domain *a = va;
   const struct threadmon_domain *b = vb;
@@ -239,7 +241,7 @@ struct ddsi_threadmon *ddsi_threadmon_new (int64_t liveliness_monitoring_interva
   sl->av_ary = NULL;
 
   ddsrt_mutex_init (&sl->lock);
-  ddsrt_cond_init (&sl->cond);
+  ddsrt_cond_mtime_init (&sl->cond);
   return sl;
 }
 
@@ -251,7 +253,7 @@ dds_return_t ddsi_threadmon_start (struct ddsi_threadmon *sl, const char *name)
   ddsrt_mutex_unlock (&sl->lock);
 
   /* FIXME: thread properties */
-  if (create_thread_with_properties (&sl->thrst, NULL, name, (uint32_t (*) (void *)) threadmon_thread, sl) != DDS_RETCODE_OK)
+  if (ddsi_create_thread_with_properties (&sl->thrst, NULL, name, threadmon_thread, sl) != DDS_RETCODE_OK)
     goto fail_thread;
   return 0;
 
@@ -297,9 +299,9 @@ void ddsi_threadmon_stop (struct ddsi_threadmon *sl)
   {
     ddsrt_mutex_lock (&sl->lock);
     sl->keepgoing = 0;
-    ddsrt_cond_signal (&sl->cond);
+    ddsrt_cond_mtime_signal (&sl->cond);
     ddsrt_mutex_unlock (&sl->lock);
-    join_thread (sl->thrst);
+    ddsi_join_thread (sl->thrst);
   }
 }
 
@@ -309,7 +311,7 @@ void ddsi_threadmon_free (struct ddsi_threadmon *sl)
   struct ddsrt_hh_iter it;
   assert (ddsrt_hh_iter_first (sl->domains, &it) == NULL);
 #endif
-  ddsrt_cond_destroy (&sl->cond);
+  ddsrt_cond_mtime_destroy (&sl->cond);
   ddsrt_mutex_destroy (&sl->lock);
   ddsrt_hh_free (sl->domains);
   ddsrt_free (sl->av_ary);

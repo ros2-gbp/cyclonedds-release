@@ -33,6 +33,7 @@ if(NOT ${_bison_hash_correct})
 
   if(BISON_FOUND)
     message(STATUS "Running Bison, parser.y was updated.")
+    message(STATUS "${source_dir}")
 
     file(REMOVE src/parser.c)
     file(REMOVE src/parser.h)
@@ -46,7 +47,7 @@ if(NOT ${_bison_hash_correct})
         ${binary_dir}/src/parser.c
         ${binary_dir}/src/parser.h
       COMMAND ${CMAKE_COMMAND} ARGS
-        "-Dsource_dir=${CMAKE_CURRENT_LIST_DIR}"
+        "-Dsource_dir=${source_dir}"
         "-Dbinary_dir=${binary_dir}"
         "-DMAIN_PROJECT_DIR=${CMAKE_SOURCE_DIR}"
         -P ${CMAKE_CURRENT_LIST_DIR}/postprocess-parser.cmake
@@ -73,7 +74,9 @@ set(headers
   include/idl/string.h
   include/idl/symbol.h
   include/idl/tree.h
+  include/idl/vector.h
   include/idl/visit.h
+  include/idl/heap.h
   ${binary_dir}/include/idl/version.h)
 
 set(sources
@@ -88,11 +91,13 @@ set(sources
   src/scope.c
   src/string.c
   src/tree.c
+  src/vector.c
   src/visit.c
   src/print.c
   src/keylist.c
   src/hashid.c
   src/parser.c
+  src/heap.c
   src/annotation.h
   src/directive.h
   src/expression.h
@@ -104,6 +109,11 @@ set(sources
   src/symbol.h
   src/tree.h
   src/keylist.h)
+
+if(ENABLE_TYPELIB)
+list(APPEND headers include/idl/descriptor_type_meta.h)
+list(APPEND sources src/descriptor_type_meta.c)
+endif()
 
 # import generic utility sources from ddsrt to avoid duplication
 # NOTE: an additional INTERFACE library defined in ddsrt would be ideal, but
@@ -128,13 +138,13 @@ foreach(source ${templates})
   set(output "${binary_dir}/${source}")
   # process source file. i.e. replace dds and ddsrt with idl
   add_custom_command(
-    OUTPUT "${output}"
+    OUTPUT ${output}
     COMMAND "${CMAKE_COMMAND}" -DNAMESPACE=idl
-                               -DINPUT_FILE="${input}"
-                               -DOUTPUT_DIRECTORY="${binary_dir}"
-                               -DOUTPUT_FILE="${output}"
-                               -P "${script}"
-    DEPENDS "${input}" "${script}")
+                               -DINPUT_FILE=${input}
+                               -DOUTPUT_DIRECTORY=${binary_dir}
+                               -DOUTPUT_FILE=${output}
+                               -P ${script}
+    DEPENDS ${input} ${script})
   if(source MATCHES "^include/.*\\.h")
     list(APPEND headers ${output})
   else()
@@ -144,6 +154,11 @@ endforeach()
 
 add_library(idl SHARED ${headers} ${sources})
 
+if(MSVC)
+  # ignore warning 5286 and 5287 about enum type conversion
+  target_compile_options(idl PRIVATE /wd5286 /wd5287)
+endif()
+
 set_target_properties(
   idl PROPERTIES
   OUTPUT_NAME "cycloneddsidl"
@@ -152,6 +167,7 @@ set_target_properties(
 
 generate_export_header(idl EXPORT_FILE_NAME include/idl/export.h)
 
+target_link_libraries(idl PUBLIC ddsc)
 
 target_include_directories(
   idl
@@ -161,7 +177,10 @@ target_include_directories(
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>"
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>"
   INTERFACE
-    "$<INSTALL_INTERFACE:include>")
+    "$<INSTALL_INTERFACE:include>"
+  PRIVATE
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../core/ddsi/include>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../core/cdr/include>")
 
 target_link_libraries(idl PRIVATE Threads::Threads)
 
