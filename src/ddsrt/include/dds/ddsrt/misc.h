@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2021 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2021 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #ifndef DDSRT_MISC_H
 #define DDSRT_MISC_H
 
@@ -63,7 +62,7 @@ extern "C" {
 #if defined(_MSC_VER)
 # define DDSRT_WARNING_MSVC_OFF(x) \
     __pragma (warning(push)) \
-    __pragma (warning(disable: ## x))
+    __pragma (warning(disable: x))
 # define DDSRT_WARNING_MSVC_ON(x) \
     __pragma (warning(pop))
 #else
@@ -91,6 +90,12 @@ extern "C" {
   DDSRT_WARNING_CLANG_ON(deprecated-declarations) \
   DDSRT_WARNING_GNUC_ON(deprecated-declarations) \
   DDSRT_WARNING_MSVC_ON(4996)
+
+#ifdef __clang_analyzer__
+#define DDSRT_CLANG_ANALYZER_SUPPRESS [[clang::suppress]]
+#else
+#define DDSRT_CLANG_ANALYZER_SUPPRESS
+#endif
 
 #if defined (__cplusplus)
 }

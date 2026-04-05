@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2021 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2021 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #define ACCESS_CONTROL_USE_ONE_PERMISSION
 
 #include <assert.h>
@@ -445,6 +444,11 @@ check_create_topic(dds_security_access_control *instance,
 
   /* Find a topic with the specified topic name in the Governance */
   result = is_topic_allowed_by_permissions(local_rights->permissions_tree, domain_id, topic_name, local_rights->identity_subject_name, ex);
+
+  /* ex may have been set because of encountering a deny rule even though topic creation is allowed,
+     leaving the exception set causes a memory leak */
+  if (result)
+    DDS_Security_Exception_reset(ex);
 
 exit:
   ACCESS_CONTROL_OBJECT_RELEASE(local_rights);
@@ -1953,8 +1957,7 @@ static bool is_allowed_by_default_rule (const struct grant *permissions_grant, c
   }
 }
 
-static bool is_allowed_by_rule (const struct allow_deny_rule *current_rule, const char *topic_name, DDS_Security_SecurityException *ex) ddsrt_nonnull_all ddsrt_attribute_warn_unused_result;
-
+ddsrt_nonnull_all ddsrt_attribute_warn_unused_result
 static bool is_allowed_by_rule (const struct allow_deny_rule *current_rule, const char *topic_name, DDS_Security_SecurityException *ex)
 {
   switch (current_rule->rule_type)
@@ -2015,13 +2018,39 @@ static bool is_topic_allowed_by_permissions (const struct permissions_parser *pe
   const struct allow_deny_rule *rule;
   if (!rule_iter_init (&it, permissions, domain_id, identity_subject_name, ex))
     return false;
+
+  bool subscribe_rule_found = false;
+  bool publish_rule_found = false;
+
+  bool subscribe_allowed = true;
+  bool publish_allowed = true;
+
   while ((rule = rule_iter_next (&it)) != NULL)
   {
     for (const struct criteria *crit = rule->criteria; crit; crit = (const struct criteria *) crit->node.next)
+    {
       if (is_topic_in_criteria (crit, topic_name))
-        return is_allowed_by_rule (rule, topic_name, ex);
+      {
+        if (!subscribe_rule_found && crit->criteria_type == SUBSCRIBE_CRITERIA)
+        {
+          subscribe_rule_found = true;
+          subscribe_allowed = is_allowed_by_rule (rule, topic_name, ex);
+        }
+        else if (!publish_rule_found && crit->criteria_type == PUBLISH_CRITERIA)
+        {
+          publish_rule_found = true;
+          publish_allowed = is_allowed_by_rule (rule, topic_name, ex);
+        }
+      }
+    }
   }
-  return is_allowed_by_default_rule (it.grant, topic_name, ex);
+
+  if (!subscribe_rule_found)
+    subscribe_allowed = is_allowed_by_default_rule (it.grant, topic_name, ex);
+  if (!publish_rule_found)
+    publish_allowed = is_allowed_by_default_rule (it.grant, topic_name, ex);
+
+  return publish_allowed || subscribe_allowed;
 }
 
 static bool is_readwrite_allowed_by_permissions (struct permissions_parser *permissions, int domain_id, const char *topic_name, const DDS_Security_PartitionQosPolicy *partitions, const char *identity_subject_name, permission_criteria_type criteria_type, DDS_Security_SecurityException *ex)
@@ -2398,7 +2427,7 @@ check_and_create_remote_participant_rights(
     /* use default permissions document (all deny) if there is no permissions file
          *to communicate with access_control=false and comply with previous release */
     struct domain_rule *domainRule = find_domain_rule_in_governance(local_rights->governance_tree->dds->domain_access_rules->domain_rule, local_rights->domain_id);
-    if (!domainRule->enable_join_access_control->value)
+    if (domainRule && !domainRule->enable_join_access_control->value)
     {
       permissions_xml = ddsrt_str_replace(DDS_SECURITY_DEFAULT_PERMISSIONS, "DEFAULT_SUBJECT", identity_subject, 1);
     }

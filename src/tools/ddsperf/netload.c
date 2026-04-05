@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2019 to 2020 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2019 to 2020 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,6 +18,7 @@
 #include "dds/ddsrt/heap.h"
 #include "dds/ddsrt/string.h"
 #include "dds/ddsrt/netstat.h"
+#include "dds/ddsrt/misc.h"
 
 #include "netload.h"
 
@@ -30,12 +30,12 @@ struct record_netload_state {
   double bw;
   bool errored;
   bool data_valid;
-  dds_time_t tprev;
+  ddsrt_hrtime_t tprev;
   uint64_t ibytes;
   uint64_t obytes;
 };
 
-void record_netload (struct record_netload_state *st, const char *prefix, dds_time_t tnow)
+void record_netload (struct record_netload_state *st, const char *prefix, ddsrt_hrtime_t tnow)
 {
   if (st && !st->errored)
   {
@@ -47,7 +47,7 @@ void record_netload (struct record_netload_state *st, const char *prefix, dds_ti
       if (st->data_valid)
       {
         /* interface speeds are in bits/s, so convert bytes to bits */
-        const double dt = (double) (tnow - st->tprev) / 1e9;
+        const double dt = (double) (tnow.v - st->tprev.v) / 1e9;
         const double dx = 8 * (double) (x.obytes - st->obytes) / dt;
         const double dr = 8 * (double) (x.ibytes - st->ibytes) / dt;
         if (st->bw > 0)
@@ -76,18 +76,23 @@ void record_netload (struct record_netload_state *st, const char *prefix, dds_ti
 
 struct record_netload_state *record_netload_new (const char *dev, double bw)
 {
-  struct record_netload_state *st = ddsrt_malloc (sizeof (*st));
+DDSRT_WARNING_MSVC_OFF(4996);
+  struct record_netload_state *st;
+  st = malloc (sizeof (*st));
+  assert (st);
   if (ddsrt_netstat_new (&st->ctrl, dev) != DDS_RETCODE_OK)
   {
-    ddsrt_free (st);
+    free (st);
     return NULL;
   }
-  st->name = ddsrt_strdup (dev);
+  st->name = strdup (dev);
+  assert (st->name);
   st->bw = bw;
   st->data_valid = false;
   st->errored = false;
-  record_netload (st, "", dds_time ());
+  record_netload (st, "", ddsrt_time_highres ());
   return st;
+DDSRT_WARNING_MSVC_ON(4996);
 }
 
 void record_netload_free (struct record_netload_state *st)
@@ -95,14 +100,14 @@ void record_netload_free (struct record_netload_state *st)
   if (st)
   {
     ddsrt_netstat_free (st->ctrl);
-    ddsrt_free (st->name);
-    ddsrt_free (st);
+    free (st->name);
+    free (st);
   }
 }
 
 #else
 
-void record_netload (struct record_netload_state *st, const char *prefix, dds_time_t tnow)
+void record_netload (struct record_netload_state *st, const char *prefix, ddsrt_hrtime_t tnow)
 {
   (void) st;
   (void) prefix;

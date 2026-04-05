@@ -1,44 +1,70 @@
-/*
- * Copyright(c) 2006 to 2022 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2022 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <assert.h>
 #include <string.h>
 #include <stddef.h>
 
 #include "dds/ddsrt/heap.h"
-#include "dds/ddsi/ddsi_entity.h"
-#include "dds/ddsi/ddsi_entity_match.h"
-#include "dds/ddsi/ddsi_proxy_participant.h"
-#include "dds/ddsi/ddsi_endpoint.h"
-#include "dds/ddsi/ddsi_proxy_endpoint.h"
-#include "dds/ddsi/ddsi_entity_index.h"
 #include "dds/ddsi/ddsi_domaingv.h"
 #include "dds/ddsi/ddsi_builtin_topic_if.h"
-#include "dds/ddsi/ddsi_security_omg.h"
-#include "dds/ddsi/q_addrset.h"
-#include "dds/ddsi/q_whc.h"
-#include "dds/ddsi/q_xevent.h"
-#include "dds/ddsi/q_radmin.h"
+#include "ddsi__addrset.h"
+#include "ddsi__entity.h"
+#include "ddsi__endpoint_match.h"
+#include "ddsi__entity_index.h"
+#include "ddsi__security_omg.h"
+#include "ddsi__addrset.h"
+#include "ddsi__whc.h"
+#include "ddsi__xevent.h"
+#include "ddsi__radmin.h"
+#include "ddsi__endpoint.h"
+#include "ddsi__gc.h"
+#include "ddsi__plist.h"
+#include "ddsi__proxy_endpoint.h"
+#include "ddsi__proxy_participant.h"
+#include "ddsi__typelib.h"
+#include "ddsi__lease.h"
 
 const ddsrt_avl_treedef_t ddsi_pwr_readers_treedef =
   DDSRT_AVL_TREEDEF_INITIALIZER (offsetof (struct ddsi_pwr_rd_match, avlnode), offsetof (struct ddsi_pwr_rd_match, rd_guid), ddsi_compare_guid, 0);
 const ddsrt_avl_treedef_t ddsi_prd_writers_treedef =
   DDSRT_AVL_TREEDEF_INITIALIZER (offsetof (struct ddsi_prd_wr_match, avlnode), offsetof (struct ddsi_prd_wr_match, wr_guid), ddsi_compare_guid, 0);
 
-#ifdef DDS_HAS_SHM
-struct has_iceoryx_address_helper_arg {
-  const ddsi_locator_t *loc_iceoryx_addr;
-  bool has_iceoryx_address;
-};
-#endif /* DDS_HAS_SHM */
+typedef struct proxy_is_local_psmx_helper {
+  const ddsi_locator_t *loc;
+  int matches_to_loc;
+} proxy_is_local_psmx_helper_t;
+
+static void count_local_psmx (const ddsi_xlocator_t *loc, void * varg)
+{
+  proxy_is_local_psmx_helper_t *hlp = (proxy_is_local_psmx_helper_t *) varg;
+
+  if (memcmp (&loc->c, hlp->loc, sizeof(*hlp->loc)) == 0)
+  {
+    hlp->matches_to_loc++;
+  }
+}
+
+static bool proxy_is_local_psmx (const struct ddsi_domaingv *gv, struct ddsi_addrset *as)
+{
+  proxy_is_local_psmx_helper_t hlp = {.loc = NULL, .matches_to_loc = 0};
+  for (int i = 0; i < gv->n_interfaces; i++)
+  {
+    if (gv->interfaces[i].is_psmx)
+    {
+      hlp.loc = &gv->interfaces[i].loc;
+      ddsi_addrset_forall (as, count_local_psmx, &hlp);
+    }
+  }
+  return hlp.matches_to_loc > 0;
+}
 
 static void proxy_writer_get_alive_state_locked (struct ddsi_proxy_writer *pwr, struct ddsi_alive_state *st)
 {
@@ -53,22 +79,56 @@ void ddsi_proxy_writer_get_alive_state (struct ddsi_proxy_writer *pwr, struct dd
   ddsrt_mutex_unlock (&pwr->e.lock);
 }
 
-static int proxy_endpoint_common_init (struct ddsi_entity_common *e, struct ddsi_proxy_endpoint_common *c, enum ddsi_entity_kind kind, const struct ddsi_guid *guid, ddsrt_wctime_t tcreate, seqno_t seq, struct ddsi_proxy_participant *proxypp, struct addrset *as, const ddsi_plist_t *plist)
+static void determine_preferred_uc_locator_helper (const ddsi_xlocator_t *loc, void *vdst)
 {
-  int ret;
+  ddsi_xlocator_t * const dst = vdst;
+  if (loc->c.kind != DDSI_LOCATOR_KIND_PSMX)
+  {
+    if (ddsi_is_unspec_xlocator (dst) || loc->conn->m_interf->priority > dst->conn->m_interf->priority)
+      *dst = *loc;
+  }
+}
+
+static void determine_preferred_uc_locator (ddsi_xlocator_t *dst, struct ddsi_addrset *as)
+{
+  // we require unicast addresses and check this in the validation of incoming discovery messages
+  assert (ddsi_addrset_count_uc (as) > 0);
+
+  // Pick the interface with the highest priority, and in case of a tie, the first
+  //
+  // This is mostly equivalent to what gets computed for the writer address set, but not entirely:
+  // that factors in some additional costs and may end up picking a lower priority interface if it
+  // considers it less costly. For example, if there are two interfaces with almost the same priority
+  // a whole bunch of readers, unicast-only for the higher priority one and multicast for the lower
+  // priority one, then it can end up using the lower priority interface.
+  //
+  // The reader is not privy to the inputs of the writer, so it can't hope to do the same thing. It
+  // could update this address based on incoming packets, though, and that would make the reader
+  // adjust to the writer. I suspect that'd be overkill.
+  //
+  // (Similar considerations hold for writers sending data to one reader only.)
+  ddsi_set_unspec_xlocator (dst);
+  (void) ddsi_addrset_forall_uc_count (as, determine_preferred_uc_locator_helper, dst);
+  assert (!ddsi_is_unspec_xlocator (dst));
+}
+
+static dds_return_t proxy_endpoint_common_init (struct ddsi_entity_common *e, struct ddsi_proxy_endpoint_common *c, enum ddsi_entity_kind kind, const struct ddsi_guid *guid, ddsrt_wctime_t tcreate, ddsi_seqno_t seq, struct ddsi_proxy_participant *proxypp, struct ddsi_addrset *as, const ddsi_plist_t *plist)
+{
+  dds_return_t ret;
 
   if (ddsi_is_builtin_entityid (guid->entityid, proxypp->vendor))
-    assert ((plist->qos.present & QP_TYPE_NAME) == 0);
+    assert ((plist->qos.present & DDSI_QP_TYPE_NAME) == 0);
   else
-    assert ((plist->qos.present & (QP_TOPIC_NAME | QP_TYPE_NAME)) == (QP_TOPIC_NAME | QP_TYPE_NAME));
+    assert ((plist->qos.present & (DDSI_QP_TOPIC_NAME | DDSI_QP_TYPE_NAME)) == (DDSI_QP_TOPIC_NAME | DDSI_QP_TYPE_NAME));
 
   ddsi_entity_common_init (e, proxypp->e.gv, guid, kind, tcreate, proxypp->vendor, false);
   c->xqos = ddsi_xqos_dup (&plist->qos);
-  c->as = ref_addrset (as);
+  c->as = ddsi_ref_addrset (as);
+  determine_preferred_uc_locator (&c->loc_uc, as);
   c->vendor = proxypp->vendor;
   c->seq = seq;
-#ifdef DDS_HAS_TYPE_DISCOVERY
-  if (plist->qos.present & QP_TYPE_INFORMATION)
+#ifdef DDS_HAS_TYPELIB
+  if (plist->qos.present & DDSI_QP_TYPE_INFORMATION)
   {
     if ((c->type_pair = ddsrt_calloc (1, sizeof (*c->type_pair))) == NULL)
     {
@@ -91,17 +151,17 @@ static int proxy_endpoint_common_init (struct ddsi_entity_common *e, struct ddsi
     memset (&c->group_guid, 0, sizeof (c->group_guid));
 
 #ifdef DDS_HAS_SECURITY
-  q_omg_get_proxy_endpoint_security_info(e, &proxypp->security_info, plist, &c->security_info);
+  ddsi_omg_get_proxy_endpoint_security_info (e, &proxypp->security_info, plist, &c->security_info);
 #endif
 
-  ret = ddsi_ref_proxy_participant (proxypp, c);
+  ret = ddsi_ref_proxy_participant_begin (proxypp, c);
 
-#ifdef DDS_HAS_TYPE_DISCOVERY
+#ifdef DDS_HAS_TYPELIB
 err:
 #endif
   if (ret != DDS_RETCODE_OK)
   {
-#ifdef DDS_HAS_TYPE_DISCOVERY
+#ifdef DDS_HAS_TYPELIB
     if (c->type_pair != NULL)
     {
       if (c->type_pair->minimal)
@@ -119,7 +179,7 @@ err:
 #endif
     ddsi_xqos_fini (c->xqos);
     ddsrt_free (c->xqos);
-    unref_addrset (c->as);
+    ddsi_unref_addrset (c->as);
     ddsi_entity_common_fini (e);
   }
 
@@ -131,69 +191,91 @@ static void proxy_endpoint_common_fini (struct ddsi_entity_common *e, struct dds
   ddsi_unref_proxy_participant (c->proxypp, c);
   ddsi_xqos_fini (c->xqos);
   ddsrt_free (c->xqos);
-  unref_addrset (c->as);
+  ddsi_unref_addrset (c->as);
   ddsi_entity_common_fini (e);
 }
 
-#ifdef DDS_HAS_SHM
-static void has_iceoryx_address_helper (const ddsi_xlocator_t *n, void *varg)
+#ifdef DDSRT_HAVE_SSM
+static void addrset_interfaces_allow_ssm_helper (const ddsi_xlocator_t *xloc, void *vssm_allowed)
 {
-  struct has_iceoryx_address_helper_arg *arg = varg;
-  if (n->c.kind == NN_LOCATOR_KIND_SHEM && memcmp (arg->loc_iceoryx_addr->address, n->c.address, sizeof (arg->loc_iceoryx_addr->address)) == 0)
-    arg->has_iceoryx_address = true;
+  bool *ssm_allowed = vssm_allowed;
+  if (xloc->conn->m_interf->allow_multicast & DDSI_AMC_SSM)
+    *ssm_allowed = true;
 }
 
-static bool has_iceoryx_address (struct ddsi_domaingv * const gv, struct addrset * const as)
+static bool addrset_interfaces_allow_ssm (struct ddsi_addrset *as)
 {
-  if (!gv->config.enable_shm)
-    return false;
-  else
-  {
-    struct has_iceoryx_address_helper_arg arg = {
-      .loc_iceoryx_addr = &gv->loc_iceoryx_addr,
-      .has_iceoryx_address = false
-    };
-    addrset_forall (as, has_iceoryx_address_helper, &arg);
-    return arg.has_iceoryx_address;
-  }
+  // FIXME: const variant of addrset_forall would be nice here
+  bool ssm_allowed = false;
+  ddsi_addrset_forall (as, addrset_interfaces_allow_ssm_helper, &ssm_allowed);
+  return ssm_allowed;
 }
-#endif /* DDS_HAS_SHM */
+#endif
 
-#ifdef DDS_HAS_TYPE_DISCOVERY
+#ifdef DDS_HAS_TYPELIB
 bool ddsi_is_proxy_endpoint (const struct ddsi_entity_common *e)
 {
   return e->kind == DDSI_EK_PROXY_READER || e->kind == DDSI_EK_PROXY_WRITER;
 }
-#endif /* DDS_HAS_TYPE_DISCOVERY */
+#endif /* DDS_HAS_TYPELIB */
+
+void ddsi_send_entityid_to_prd (struct ddsi_proxy_reader *prd, const ddsi_guid_t *guid)
+{
+  /* For connected transports, may need to establish and identify connection */
+  struct ddsi_domaingv * const gv = prd->e.gv;
+  if (!gv->m_factory->m_connless)
+  {
+    GVTRACE ("  ddsi_send_entityid_to_prd (%"PRIx32":%"PRIx32":%"PRIx32")\n", PGUIDPREFIX (guid->prefix));
+    struct ddsi_xmsg *msg = ddsi_xmsg_new (gv->xmsgpool, guid, NULL, sizeof (ddsi_rtps_entityid_t), DDSI_XMSG_KIND_CONTROL);
+    ddsi_xmsg_setdst_prd (msg, prd);
+    ddsi_xmsg_add_entityid (msg);
+    ddsi_qxev_msg (gv->xevents, msg);
+  }
+}
+
+void ddsi_send_entityid_to_pwr (struct ddsi_proxy_writer *pwr, const ddsi_guid_t *guid)
+{
+  /* For connected transports, may need to establish and identify connection */
+  struct ddsi_domaingv * const gv = pwr->e.gv;
+  if (!gv->m_factory->m_connless)
+  {
+    GVTRACE ("  ddsi_send_entityid_to_pwr (%"PRIx32":%"PRIx32":%"PRIx32")\n", PGUIDPREFIX (guid->prefix));
+    struct ddsi_xmsg *msg = ddsi_xmsg_new (gv->xmsgpool, guid, NULL, sizeof (ddsi_rtps_entityid_t), DDSI_XMSG_KIND_CONTROL);
+    ddsi_xmsg_setdst_pwr (msg, pwr);
+    ddsi_xmsg_add_entityid (msg);
+    ddsi_qxev_msg (gv->xevents, msg);
+  }
+}
 
 /* PROXY-WRITER ----------------------------------------------------- */
 
-static enum nn_reorder_mode get_proxy_writer_reorder_mode(const ddsi_entityid_t pwr_entityid, int isreliable)
+static enum ddsi_reorder_mode get_proxy_writer_reorder_mode(const ddsi_entityid_t pwr_entityid, int isreliable)
 {
   if (isreliable)
   {
-    return NN_REORDER_MODE_NORMAL;
+    return DDSI_REORDER_MODE_NORMAL;
   }
-  if (pwr_entityid.u == NN_ENTITYID_P2P_BUILTIN_PARTICIPANT_STATELESS_MESSAGE_WRITER)
+  if (pwr_entityid.u == DDSI_ENTITYID_P2P_BUILTIN_PARTICIPANT_STATELESS_MESSAGE_WRITER)
   {
-    return NN_REORDER_MODE_ALWAYS_DELIVER;
+    return DDSI_REORDER_MODE_ALWAYS_DELIVER;
   }
-  return NN_REORDER_MODE_MONOTONICALLY_INCREASING;
+  return DDSI_REORDER_MODE_MONOTONICALLY_INCREASING;
 }
 
-int ddsi_new_proxy_writer (struct ddsi_domaingv *gv, const struct ddsi_guid *ppguid, const struct ddsi_guid *guid, struct addrset *as, const ddsi_plist_t *plist, struct nn_dqueue *dqueue, struct xeventq *evq, ddsrt_wctime_t timestamp, seqno_t seq)
+dds_return_t ddsi_new_proxy_writer (struct ddsi_proxy_writer **proxy_writer, struct ddsi_domaingv *gv, const struct ddsi_guid *ppguid, const struct ddsi_guid *guid, struct ddsi_addrset *as, const ddsi_plist_t *plist, struct ddsi_dqueue *dqueue, struct ddsi_xeventq *evq, ddsrt_wctime_t timestamp, ddsi_seqno_t seq)
 {
   struct ddsi_proxy_participant *proxypp;
   struct ddsi_proxy_writer *pwr;
   int isreliable;
   ddsrt_mtime_t tnow = ddsrt_time_monotonic ();
-  enum nn_reorder_mode reorder_mode;
-  int ret;
+  enum ddsi_reorder_mode reorder_mode;
+  dds_return_t ret;
 
+  assert (proxy_writer);
   assert (ddsi_is_writer_entityid (guid->entityid));
-  assert (entidx_lookup_proxy_writer_guid (gv->entity_index, guid) == NULL);
+  assert (ddsi_entidx_lookup_proxy_writer_guid (gv->entity_index, guid) == NULL);
 
-  if ((proxypp = entidx_lookup_proxy_participant_guid (gv->entity_index, ppguid)) == NULL)
+  if ((proxypp = ddsi_entidx_lookup_proxy_participant_guid (gv->entity_index, ppguid)) == NULL)
   {
     GVWARNING ("ddsi_new_proxy_writer("PGUIDFMT"): proxy participant unknown\n", PGUID (*guid));
     return DDS_RETCODE_BAD_PARAMETER;
@@ -233,22 +315,20 @@ int ddsi_new_proxy_writer (struct ddsi_domaingv *gv, const struct ddsi_guid *ppg
   isreliable = (pwr->c.xqos->reliability.kind != DDS_RELIABILITY_BEST_EFFORT);
   pwr->have_seen_heartbeat = !isreliable;
   pwr->local_matching_inprogress = 1;
-#ifdef DDS_HAS_SSM
-  pwr->supports_ssm = (addrset_contains_ssm (gv, as) && gv->config.allowMulticast & DDSI_AMC_SSM) ? 1 : 0;
+#ifdef DDSRT_HAVE_SSM
+  pwr->supports_ssm = (ddsi_addrset_contains_ssm (gv, as) && addrset_interfaces_allow_ssm (as)) ? 1 : 0;
 #endif
-#ifdef DDS_HAS_SHM
-  pwr->is_iceoryx = has_iceoryx_address (gv, as) ? 1 : 0;
-#endif
+  pwr->local_psmx = proxy_is_local_psmx(gv, as);
   if (plist->present & PP_CYCLONE_REDUNDANT_NETWORKING)
     pwr->redundant_networking = (plist->cyclone_redundant_networking != 0);
   else
     pwr->redundant_networking = proxypp->redundant_networking;
 
-  assert (pwr->c.xqos->present & QP_LIVELINESS);
+  assert (pwr->c.xqos->present & DDSI_QP_LIVELINESS);
   if (pwr->c.xqos->liveliness.lease_duration != DDS_INFINITY)
   {
     ddsrt_etime_t texpire = ddsrt_etime_add_duration (ddsrt_time_elapsed (), pwr->c.xqos->liveliness.lease_duration);
-    pwr->lease = lease_new (texpire, pwr->c.xqos->liveliness.lease_duration, &pwr->e);
+    pwr->lease = ddsi_lease_new (texpire, pwr->c.xqos->liveliness.lease_duration, &pwr->e);
     if (pwr->c.xqos->liveliness.kind != DDS_LIVELINESS_MANUAL_BY_TOPIC)
     {
       ddsrt_mutex_lock (&proxypp->e.lock);
@@ -257,7 +337,7 @@ int ddsi_new_proxy_writer (struct ddsi_domaingv *gv, const struct ddsi_guid *ppg
     }
     else
     {
-      lease_register (pwr->lease);
+      ddsi_lease_register (pwr->lease);
     }
   }
   else
@@ -267,16 +347,16 @@ int ddsi_new_proxy_writer (struct ddsi_domaingv *gv, const struct ddsi_guid *ppg
 
   if (isreliable)
   {
-    pwr->defrag = nn_defrag_new (&gv->logconfig, NN_DEFRAG_DROP_LATEST, gv->config.defrag_reliable_maxsamples);
+    pwr->defrag = ddsi_defrag_new (&gv->logconfig, DDSI_DEFRAG_DROP_LATEST, gv->config.defrag_reliable_maxsamples);
   }
   else
   {
-    pwr->defrag = nn_defrag_new (&gv->logconfig, NN_DEFRAG_DROP_OLDEST, gv->config.defrag_unreliable_maxsamples);
+    pwr->defrag = ddsi_defrag_new (&gv->logconfig, DDSI_DEFRAG_DROP_OLDEST, gv->config.defrag_unreliable_maxsamples);
   }
   reorder_mode = get_proxy_writer_reorder_mode(pwr->e.guid.entityid, isreliable);
-  pwr->reorder = nn_reorder_new (&gv->logconfig, reorder_mode, gv->config.primary_reorder_maxsamples, gv->config.late_ack_mode);
+  pwr->reorder = ddsi_reorder_new (&gv->logconfig, reorder_mode, gv->config.primary_reorder_maxsamples, gv->config.late_ack_mode);
 
-  if (pwr->e.guid.entityid.u == NN_ENTITYID_P2P_BUILTIN_PARTICIPANT_VOLATILE_SECURE_WRITER)
+  if (pwr->e.guid.entityid.u == DDSI_ENTITYID_P2P_BUILTIN_PARTICIPANT_VOLATILE_SECURE_WRITER)
   {
     /* for the builtin_volatile_secure proxy writer which uses a content filter set the next expected
      * sequence number of the reorder administration to the maximum sequence number to ensure that effectively
@@ -284,33 +364,76 @@ int ddsi_new_proxy_writer (struct ddsi_domaingv *gv, const struct ddsi_guid *ppg
      * reader is always considered out of sync the reorder administration of the corresponding reader will be used
      * instead.
      */
-    nn_reorder_set_next_seq(pwr->reorder, MAX_SEQ_NUMBER);
+    ddsi_reorder_set_next_seq(pwr->reorder, DDSI_MAX_SEQ_NUMBER);
     pwr->filtered = 1;
   }
 
   pwr->dqueue = dqueue;
   pwr->evq = evq;
-  pwr->ddsi2direct_cb = 0;
-  pwr->ddsi2direct_cbarg = 0;
 
-  local_reader_ary_init (&pwr->rdary);
+  ddsi_local_reader_ary_init (&pwr->rdary);
 
   /* locking the entity prevents matching while the built-in topic hasn't been published yet */
   ddsrt_mutex_lock (&pwr->e.lock);
-  entidx_insert_proxy_writer_guid (gv->entity_index, pwr);
-  builtintopic_write_endpoint (gv->builtin_topic_interface, &pwr->e, timestamp, true);
+  ddsi_entidx_insert_proxy_writer_guid (gv->entity_index, pwr);
+  ddsi_builtintopic_write_endpoint (gv->builtin_topic_interface, &pwr->e, timestamp, true);
   ddsrt_mutex_unlock (&pwr->e.lock);
 
-  match_proxy_writer_with_readers (pwr, tnow);
+  // ddsi_delete_proxy_participant_by_guid can happen between the (successful) call to
+  // proxy_endpoint_common_init and the call to add the new proxy endpoint to the entity index
+  // just above.
+  //
+  // When this happens, ddppbg collects the entity ids of all the endpoints, including of this
+  // new endpoint, invoking ddsi_delete_proxy_{reader,writer} on each endpoint's GUID. In this
+  // scenario, the lookup fails because the endpoint hadn't been inserted in the GUID table
+  // yet, and the call to ddsi_delete_proxy_{reader,writer} turns into a no-op. (Intentionally
+  // so, the code assumes it is always safe to try deleting a proxy participant/endpoint using
+  // its GUID.)
+  //
+  // After all work is done, that means we are left with this one new proxy endpoint, still
+  // referencing the proxy participant. This will stick around forever, because nothing will
+  // now trigger the deletion of the proxy endpoint.
+  //
+  // By checking again and (initiating) deletion of the new proxy endpoint if the proxy
+  // participant is now being deleted, we make sure the bit of work that ddppbg was meant to
+  // perform but could not still gets done. (And in exactly the same way.)
+  //
+  // This is rather rare, but lease expiry in parallel to the creation of a new application
+  // endpoint can hit it. There is also "oneliner"'s implementation of "deaf!" which directly
+  // calls ddppbg from the main thread. That one can also do it with the built-in endpoints.
+  //
+  // The scenario is easily reproduced by adding
+  //
+  //   { static int x = 0; if (!x++) dds_sleepfor(DDS_SECS(1)); }
+  //
+  // just before the proxy writer's mutex is locked and it gets added to the entity index,
+  // skipping the check immediately below, and then running:
+  //
+  //   oneliner "P P' sleep 0.6 deaf\! P"
+  //
+  // without this check, that'll crash with:
+  //
+  //   Assertion failed: (ddsrt_fibheap_min (&lease_fhdef, &gv->leaseheap) == NULL),
+  //     function ddsi_lease_management_term, file ddsi_lease.c, line 71.
+  if ((ret = ddsi_ref_proxy_participant_complete (proxypp)) != DDS_RETCODE_OK)
+  {
+    ddsi_delete_proxy_writer (gv, &pwr->e.guid, timestamp, ret == DDS_RETCODE_TIMEOUT);
+    return DDS_RETCODE_PRECONDITION_NOT_MET;
+  }
+  else
+  {
+    ddsi_match_proxy_writer_with_readers (pwr, tnow);
 
-  ddsrt_mutex_lock (&pwr->e.lock);
-  pwr->local_matching_inprogress = 0;
-  ddsrt_mutex_unlock (&pwr->e.lock);
+    ddsrt_mutex_lock (&pwr->e.lock);
+    pwr->local_matching_inprogress = 0;
+    ddsrt_mutex_unlock (&pwr->e.lock);
 
-  return 0;
+    *proxy_writer = pwr;
+    return DDS_RETCODE_OK;
+  }
 }
 
-void ddsi_update_proxy_writer (struct ddsi_proxy_writer *pwr, seqno_t seq, struct addrset *as, const struct dds_qos *xqos, ddsrt_wctime_t timestamp)
+void ddsi_update_proxy_writer (struct ddsi_proxy_writer *pwr, ddsi_seqno_t seq, struct ddsi_addrset *as, const struct dds_qos *xqos, ddsrt_wctime_t timestamp)
 {
   struct ddsi_reader * rd;
   struct ddsi_pwr_rd_match * m;
@@ -322,21 +445,21 @@ void ddsi_update_proxy_writer (struct ddsi_proxy_writer *pwr, seqno_t seq, struc
   if (seq > pwr->c.seq)
   {
     pwr->c.seq = seq;
-    if (! addrset_eq_onesidederr (pwr->c.as, as))
+    if (! ddsi_addrset_eq_onesidederr (pwr->c.as, as))
     {
-#ifdef DDS_HAS_SSM
-      pwr->supports_ssm = (addrset_contains_ssm (pwr->e.gv, as) && pwr->e.gv->config.allowMulticast & DDSI_AMC_SSM) ? 1 : 0;
+#ifdef DDSRT_HAVE_SSM
+      pwr->supports_ssm = (ddsi_addrset_contains_ssm (pwr->e.gv, as) && addrset_interfaces_allow_ssm (as)) ? 1 : 0;
 #endif
-      unref_addrset (pwr->c.as);
-      ref_addrset (as);
+      ddsi_unref_addrset (pwr->c.as);
+      ddsi_ref_addrset (as);
       pwr->c.as = as;
       m = ddsrt_avl_iter_first (&ddsi_pwr_readers_treedef, &pwr->readers, &iter);
       while (m)
       {
-        rd = entidx_lookup_reader_guid (pwr->e.gv->entity_index, &m->rd_guid);
+        rd = ddsi_entidx_lookup_reader_guid (pwr->e.gv->entity_index, &m->rd_guid);
         if (rd)
         {
-          qxev_pwr_entityid (pwr, &rd->e.guid);
+          ddsi_send_entityid_to_pwr (pwr, &rd->e.guid);
         }
         m = ddsrt_avl_iter_next (&iter);
       }
@@ -347,13 +470,13 @@ void ddsi_update_proxy_writer (struct ddsi_proxy_writer *pwr, seqno_t seq, struc
   ddsrt_mutex_unlock (&pwr->e.lock);
 }
 
-static void gc_delete_proxy_writer (struct gcreq *gcreq)
+static void gc_delete_proxy_writer (struct ddsi_gcreq *gcreq)
 {
   struct ddsi_proxy_writer *pwr = gcreq->arg;
   ELOGDISC (pwr, "gc_delete_proxy_writer (%p, "PGUIDFMT")\n", (void *) gcreq, PGUID (pwr->e.guid));
-  gcreq_free (gcreq);
+  ddsi_gcreq_free (gcreq);
 
-#ifdef DDS_HAS_TYPE_DISCOVERY
+#ifdef DDS_HAS_TYPELIB
   if (pwr->c.type_pair != NULL)
   {
     ddsi_type_unref (pwr->e.gv, pwr->c.type_pair->minimal);
@@ -366,71 +489,71 @@ static void gc_delete_proxy_writer (struct gcreq *gcreq)
   {
     struct ddsi_pwr_rd_match *m = ddsrt_avl_root_non_empty (&ddsi_pwr_readers_treedef, &pwr->readers);
     ddsrt_avl_delete (&ddsi_pwr_readers_treedef, &pwr->readers, m);
-    reader_drop_connection (&m->rd_guid, pwr);
+    ddsi_reader_drop_connection (&m->rd_guid, pwr);
     ddsi_update_reader_init_acknack_count (&pwr->e.gv->logconfig, pwr->e.gv->entity_index, &m->rd_guid, m->count);
-    free_pwr_rd_match (m);
+    ddsi_free_pwr_rd_match (m);
   }
-  local_reader_ary_fini (&pwr->rdary);
+  ddsi_local_reader_ary_fini (&pwr->rdary);
   if (pwr->c.xqos->liveliness.lease_duration != DDS_INFINITY)
-    lease_free (pwr->lease);
+    ddsi_lease_free (pwr->lease);
 #ifdef DDS_HAS_SECURITY
-  q_omg_security_deregister_remote_writer(pwr);
+  ddsi_omg_security_deregister_remote_writer (pwr);
 #endif
   proxy_endpoint_common_fini (&pwr->e, &pwr->c);
-  nn_defrag_free (pwr->defrag);
-  nn_reorder_free (pwr->reorder);
+  ddsi_defrag_free (pwr->defrag);
+  ddsi_reorder_free (pwr->reorder);
   ddsrt_free (pwr);
 }
 
-static void gc_delete_proxy_writer_dqueue_bubble_cb (struct gcreq *gcreq)
+static void gc_delete_proxy_writer_dqueue_bubble_cb (void *vgcreq)
 {
   /* delete proxy_writer, phase 3 */
+  struct ddsi_gcreq * const gcreq = vgcreq;
   struct ddsi_proxy_writer *pwr = gcreq->arg;
   ELOGDISC (pwr, "gc_delete_proxy_writer_dqueue_bubble(%p, "PGUIDFMT")\n", (void *) gcreq, PGUID (pwr->e.guid));
-  gcreq_requeue (gcreq, gc_delete_proxy_writer);
+  ddsi_gcreq_requeue (gcreq, gc_delete_proxy_writer);
 }
 
-static void gc_delete_proxy_writer_dqueue (struct gcreq *gcreq)
+static void gc_delete_proxy_writer_dqueue (struct ddsi_gcreq *gcreq)
 {
   /* delete proxy_writer, phase 2 */
   struct ddsi_proxy_writer *pwr = gcreq->arg;
-  struct nn_dqueue *dqueue = pwr->dqueue;
+  struct ddsi_dqueue *dqueue = pwr->dqueue;
   ELOGDISC (pwr, "gc_delete_proxy_writer_dqueue(%p, "PGUIDFMT")\n", (void *) gcreq, PGUID (pwr->e.guid));
-  nn_dqueue_enqueue_callback (dqueue, (void (*) (void *)) gc_delete_proxy_writer_dqueue_bubble_cb, gcreq);
+  ddsi_dqueue_enqueue_callback (dqueue, gc_delete_proxy_writer_dqueue_bubble_cb, gcreq);
 }
 
 static int gcreq_proxy_writer (struct ddsi_proxy_writer *pwr)
 {
-  struct gcreq *gcreq = gcreq_new (pwr->e.gv->gcreq_queue, gc_delete_proxy_writer_dqueue);
+  struct ddsi_gcreq *gcreq = ddsi_gcreq_new (pwr->e.gv->gcreq_queue, gc_delete_proxy_writer_dqueue);
   gcreq->arg = pwr;
-  gcreq_enqueue (gcreq);
+  ddsi_gcreq_enqueue (gcreq);
   return 0;
 }
 
 /* First stage in deleting the proxy writer. In this function the pwr and its member pointers
    will remain valid. The real cleaning-up is done async in gc_delete_proxy_writer. */
-int ddsi_delete_proxy_writer (struct ddsi_domaingv *gv, const struct ddsi_guid *guid, ddsrt_wctime_t timestamp, int isimplicit)
+int ddsi_delete_proxy_writer (struct ddsi_domaingv *gv, const struct ddsi_guid *guid, ddsrt_wctime_t timestamp, bool lease_expired)
 {
   struct ddsi_proxy_writer *pwr;
-  DDSRT_UNUSED_ARG (isimplicit);
+  DDSRT_UNUSED_ARG (lease_expired);
   GVLOGDISC ("ddsi_delete_proxy_writer ("PGUIDFMT") ", PGUID (*guid));
 
-  ddsrt_mutex_lock (&gv->lock);
-  if ((pwr = entidx_lookup_proxy_writer_guid (gv->entity_index, guid)) == NULL)
+  if ((pwr = ddsi_entidx_tryremove_proxy_writer_guid (gv->entity_index, guid)) == NULL)
   {
-    ddsrt_mutex_unlock (&gv->lock);
     GVLOGDISC ("- unknown\n");
     return DDS_RETCODE_BAD_PARAMETER;
   }
 
-  /* Set "deleting" flag in particular for Lite, to signal to the receive path it can't
-     trust rdary[] anymore, which is because removing the proxy writer from the hash
-     table will prevent the readers from looking up the proxy writer, and consequently
-     from removing themselves from the proxy writer's rdary[]. */
-  local_reader_ary_setinvalid (&pwr->rdary);
   GVLOGDISC ("- deleting\n");
-  builtintopic_write_endpoint (gv->builtin_topic_interface, &pwr->e, timestamp, false);
-#ifdef DDS_HAS_TYPE_DISCOVERY
+  ddsi_builtintopic_write_endpoint (gv->builtin_topic_interface, &pwr->e, timestamp, false);
+  ddsrt_mutex_lock (&pwr->e.lock);
+  /* the receive path can't trust rdary[] anymore, which is because removing the proxy
+     writer from the hash table will prevent the readers from looking up the proxy writer,
+     and consequently from removing themselves from the proxy writer's rdary[]. */
+  ddsi_local_reader_ary_setinvalid (&pwr->rdary);
+  ddsrt_mutex_unlock (&pwr->e.lock);
+#ifdef DDS_HAS_TYPELIB
   /* Unregister from type before removing from entity index, because a tl_lookup_reply
      could be pending and will trigger an update of the endpoint matching for all
      endpoints that are registered for the type. This call removes this proxy writer
@@ -441,10 +564,8 @@ int ddsi_delete_proxy_writer (struct ddsi_domaingv *gv, const struct ddsi_guid *
     ddsi_type_unreg_proxy (gv, pwr->c.type_pair->complete, &pwr->e.guid);
   }
 #endif
-  entidx_remove_proxy_writer_guid (gv->entity_index, pwr);
-  ddsrt_mutex_unlock (&gv->lock);
   if (pwr->c.xqos->liveliness.lease_duration != DDS_INFINITY && pwr->c.xqos->liveliness.kind == DDS_LIVELINESS_MANUAL_BY_TOPIC)
-    lease_unregister (pwr->lease);
+    ddsi_lease_unregister (pwr->lease);
   if (ddsi_proxy_writer_set_notalive (pwr, false) != DDS_RETCODE_OK)
     GVLOGDISC ("ddsi_proxy_writer_set_notalive failed for "PGUIDFMT"\n", PGUID(*guid));
   gcreq_proxy_writer (pwr);
@@ -479,7 +600,7 @@ void ddsi_proxy_writer_set_alive_may_unlock (struct ddsi_proxy_writer *pwr, bool
   assert (!pwr->alive);
 
   /* check that proxy writer still exists (when deleting it is removed from guid hash) */
-  if (entidx_lookup_proxy_writer_guid (pwr->e.gv->entity_index, &pwr->e.guid) == NULL)
+  if (ddsi_entidx_lookup_proxy_writer_guid (pwr->e.gv->entity_index, &pwr->e.guid) == NULL)
   {
     ELOGDISC (pwr, "ddsi_proxy_writer_set_alive_may_unlock("PGUIDFMT") - not in entity index, pwr deleting\n", PGUID (pwr->e.guid));
     return;
@@ -493,7 +614,7 @@ void ddsi_proxy_writer_set_alive_may_unlock (struct ddsi_proxy_writer *pwr, bool
     if (pwr->c.xqos->liveliness.kind != DDS_LIVELINESS_MANUAL_BY_TOPIC)
       ddsi_proxy_participant_add_pwr_lease_locked (pwr->c.proxypp, pwr);
     else
-      lease_set_expiry (pwr->lease, ddsrt_etime_add_duration (ddsrt_time_elapsed (), pwr->lease->tdur));
+      ddsi_lease_set_expiry (pwr->lease, ddsrt_etime_add_duration (ddsrt_time_elapsed (), pwr->lease->tdur));
   }
   ddsrt_mutex_unlock (&pwr->c.proxypp->e.lock);
 
@@ -527,8 +648,8 @@ int ddsi_proxy_writer_set_notalive (struct ddsi_proxy_writer *pwr, bool notify)
 
 /* PROXY-READER ----------------------------------------------------- */
 
-int ddsi_new_proxy_reader (struct ddsi_domaingv *gv, const struct ddsi_guid *ppguid, const struct ddsi_guid *guid, struct addrset *as, const ddsi_plist_t *plist, ddsrt_wctime_t timestamp, seqno_t seq
-#ifdef DDS_HAS_SSM
+dds_return_t ddsi_new_proxy_reader (struct ddsi_proxy_reader **proxy_reader, struct ddsi_domaingv *gv, const struct ddsi_guid *ppguid, const struct ddsi_guid *guid, struct ddsi_addrset *as, const ddsi_plist_t *plist, ddsrt_wctime_t timestamp, ddsi_seqno_t seq
+#ifdef DDSRT_HAVE_SSM
 , int favours_ssm
 #endif
 )
@@ -536,12 +657,13 @@ int ddsi_new_proxy_reader (struct ddsi_domaingv *gv, const struct ddsi_guid *ppg
   struct ddsi_proxy_participant *proxypp;
   struct ddsi_proxy_reader *prd;
   ddsrt_mtime_t tnow = ddsrt_time_monotonic ();
-  int ret;
+  dds_return_t ret;
 
+  assert (proxy_reader);
   assert (!ddsi_is_writer_entityid (guid->entityid));
-  assert (entidx_lookup_proxy_reader_guid (gv->entity_index, guid) == NULL);
+  assert (ddsi_entidx_lookup_proxy_reader_guid (gv->entity_index, guid) == NULL);
 
-  if ((proxypp = entidx_lookup_proxy_participant_guid (gv->entity_index, ppguid)) == NULL)
+  if ((proxypp = ddsi_entidx_lookup_proxy_participant_guid (gv->entity_index, ppguid)) == NULL)
   {
     GVWARNING ("ddsi_new_proxy_reader("PGUIDFMT"): proxy participant unknown\n", PGUID (*guid));
     return DDS_RETCODE_BAD_PARAMETER;
@@ -555,12 +677,10 @@ int ddsi_new_proxy_reader (struct ddsi_domaingv *gv, const struct ddsi_guid *ppg
   }
 
   prd->deleting = 0;
-#ifdef DDS_HAS_SSM
-  prd->favours_ssm = (favours_ssm && gv->config.allowMulticast & DDSI_AMC_SSM) ? 1 : 0;
+#ifdef DDSRT_HAVE_SSM
+  prd->favours_ssm = (favours_ssm && addrset_interfaces_allow_ssm (as)) ? 1 : 0;
 #endif
-#ifdef DDS_HAS_SHM
-  prd->is_iceoryx = has_iceoryx_address (gv, as) ? 1 : 0;
-#endif
+  prd->local_psmx = proxy_is_local_psmx (gv, as);
   prd->is_fict_trans_reader = 0;
   prd->receive_buffer_size = proxypp->receive_buffer_size;
   prd->requests_keyhash = (plist->present & PP_CYCLONE_REQUESTS_KEYHASH) && plist->cyclone_requests_keyhash;
@@ -572,8 +692,8 @@ int ddsi_new_proxy_reader (struct ddsi_domaingv *gv, const struct ddsi_guid *ppg
   ddsrt_avl_init (&ddsi_prd_writers_treedef, &prd->writers);
 
 #ifdef DDS_HAS_SECURITY
-  if (prd->e.guid.entityid.u == NN_ENTITYID_P2P_BUILTIN_PARTICIPANT_VOLATILE_SECURE_READER)
-    prd->filter = volatile_secure_data_filter;
+  if (prd->e.guid.entityid.u == DDSI_ENTITYID_P2P_BUILTIN_PARTICIPANT_VOLATILE_SECURE_READER)
+    prd->filter = ddsi_volatile_secure_data_filter;
   else
     prd->filter = NULL;
 #else
@@ -582,15 +702,25 @@ int ddsi_new_proxy_reader (struct ddsi_domaingv *gv, const struct ddsi_guid *ppg
 
   /* locking the entity prevents matching while the built-in topic hasn't been published yet */
   ddsrt_mutex_lock (&prd->e.lock);
-  entidx_insert_proxy_reader_guid (gv->entity_index, prd);
-  builtintopic_write_endpoint (gv->builtin_topic_interface, &prd->e, timestamp, true);
+  ddsi_entidx_insert_proxy_reader_guid (gv->entity_index, prd);
+  ddsi_builtintopic_write_endpoint (gv->builtin_topic_interface, &prd->e, timestamp, true);
   ddsrt_mutex_unlock (&prd->e.lock);
 
-  match_proxy_reader_with_writers (prd, tnow);
-  return DDS_RETCODE_OK;
+  // See ddsi_new_proxy_writer for why this is needed
+  if ((ret = ddsi_ref_proxy_participant_complete (proxypp)) != DDS_RETCODE_OK)
+  {
+    ddsi_delete_proxy_reader (gv, &prd->e.guid, timestamp, ret == DDS_RETCODE_TIMEOUT);
+    return DDS_RETCODE_PRECONDITION_NOT_MET;
+  }
+  else
+  {
+    ddsi_match_proxy_reader_with_writers (prd, tnow);
+    *proxy_reader = prd;
+    return DDS_RETCODE_OK;
+  }
 }
 
-void ddsi_update_proxy_reader (struct ddsi_proxy_reader *prd, seqno_t seq, struct addrset *as, const struct dds_qos *xqos, ddsrt_wctime_t timestamp)
+void ddsi_update_proxy_reader (struct ddsi_proxy_reader *prd, ddsi_seqno_t seq, struct ddsi_addrset *as, const struct dds_qos *xqos, ddsrt_wctime_t timestamp)
 {
   struct ddsi_prd_wr_match * m;
   ddsi_guid_t wrguid;
@@ -601,12 +731,12 @@ void ddsi_update_proxy_reader (struct ddsi_proxy_reader *prd, seqno_t seq, struc
   if (seq > prd->c.seq)
   {
     prd->c.seq = seq;
-    if (! addrset_eq_onesidederr (prd->c.as, as))
+    if (! ddsi_addrset_eq_onesidederr (prd->c.as, as))
     {
       /* Update proxy reader endpoints (from SEDP alive) */
 
-      unref_addrset (prd->c.as);
-      ref_addrset (as);
+      ddsi_unref_addrset (prd->c.as);
+      ddsi_ref_addrset (as);
       prd->c.as = as;
 
       /* Rebuild writer endpoints */
@@ -626,17 +756,17 @@ void ddsi_update_proxy_reader (struct ddsi_proxy_reader *prd, seqno_t seq, struc
         else
         {
           memset (&guid_next, 0xff, sizeof (guid_next));
-          guid_next.entityid.u = (guid_next.entityid.u & ~(unsigned)0xff) | NN_ENTITYID_KIND_WRITER_NO_KEY;
+          guid_next.entityid.u = (guid_next.entityid.u & ~(unsigned)0xff) | DDSI_ENTITYID_KIND_WRITER_NO_KEY;
         }
 
         ddsrt_mutex_unlock (&prd->e.lock);
-        wr = entidx_lookup_writer_guid (prd->e.gv->entity_index, &wrguid);
+        wr = ddsi_entidx_lookup_writer_guid (prd->e.gv->entity_index, &wrguid);
         if (wr)
         {
           ddsrt_mutex_lock (&wr->e.lock);
           ddsi_rebuild_writer_addrset (wr);
           ddsrt_mutex_unlock (&wr->e.lock);
-          qxev_prd_entityid (prd, &wr->e.guid);
+          ddsi_send_entityid_to_prd (prd, &wr->e.guid);
         }
         wrguid = guid_next;
         ddsrt_mutex_lock (&prd->e.lock);
@@ -669,25 +799,25 @@ static void proxy_reader_set_delete_and_ack_all_messages (struct ddsi_proxy_read
     else
     {
       memset (&wrguid_next, 0xff, sizeof (wrguid_next));
-      wrguid_next.entityid.u = (wrguid_next.entityid.u & ~(unsigned)0xff) | NN_ENTITYID_KIND_WRITER_NO_KEY;
+      wrguid_next.entityid.u = (wrguid_next.entityid.u & ~(unsigned)0xff) | DDSI_ENTITYID_KIND_WRITER_NO_KEY;
     }
 
     ddsrt_mutex_unlock (&prd->e.lock);
-    if ((wr = entidx_lookup_writer_guid (prd->e.gv->entity_index, &wrguid)) != NULL)
+    if ((wr = ddsi_entidx_lookup_writer_guid (prd->e.gv->entity_index, &wrguid)) != NULL)
     {
-      struct whc_node *deferred_free_list = NULL;
+      struct ddsi_whc_node *deferred_free_list = NULL;
       struct ddsi_wr_prd_match *m_wr;
       ddsrt_mutex_lock (&wr->e.lock);
       if ((m_wr = ddsrt_avl_lookup (&ddsi_wr_readers_treedef, &wr->readers, &prd->e.guid)) != NULL)
       {
-        struct whc_state whcst;
-        m_wr->seq = MAX_SEQ_NUMBER;
+        struct ddsi_whc_state whcst;
+        m_wr->seq = DDSI_MAX_SEQ_NUMBER;
         ddsrt_avl_augment_update (&ddsi_wr_readers_treedef, m_wr);
         (void)ddsi_remove_acked_messages (wr, &whcst, &deferred_free_list);
         ddsi_writer_clear_retransmitting (wr);
       }
       ddsrt_mutex_unlock (&wr->e.lock);
-      whc_free_deferred_free_list (wr->whc, deferred_free_list);
+      ddsi_whc_free_deferred_free_list (wr->whc, deferred_free_list);
     }
 
     wrguid = wrguid_next;
@@ -696,13 +826,13 @@ static void proxy_reader_set_delete_and_ack_all_messages (struct ddsi_proxy_read
   ddsrt_mutex_unlock (&prd->e.lock);
 }
 
-static void gc_delete_proxy_reader (struct gcreq *gcreq)
+static void gc_delete_proxy_reader (struct ddsi_gcreq *gcreq)
 {
   struct ddsi_proxy_reader *prd = gcreq->arg;
   ELOGDISC (prd, "gc_delete_proxy_reader (%p, "PGUIDFMT")\n", (void *) gcreq, PGUID (prd->e.guid));
-  gcreq_free (gcreq);
+  ddsi_gcreq_free (gcreq);
 
-#ifdef DDS_HAS_TYPE_DISCOVERY
+#ifdef DDS_HAS_TYPELIB
   if (prd->c.type_pair != NULL)
   {
     ddsi_type_unref (prd->e.gv, prd->c.type_pair->minimal);
@@ -715,11 +845,11 @@ static void gc_delete_proxy_reader (struct gcreq *gcreq)
   {
     struct ddsi_prd_wr_match *m = ddsrt_avl_root_non_empty (&ddsi_prd_writers_treedef, &prd->writers);
     ddsrt_avl_delete (&ddsi_prd_writers_treedef, &prd->writers, m);
-    writer_drop_connection (&m->wr_guid, prd);
-    free_prd_wr_match (m);
+    ddsi_writer_drop_connection (&m->wr_guid, prd);
+    ddsi_free_prd_wr_match (m);
   }
 #ifdef DDS_HAS_SECURITY
-  q_omg_security_deregister_remote_reader(prd);
+  ddsi_omg_security_deregister_remote_reader (prd);
 #endif
   proxy_endpoint_common_fini (&prd->e, &prd->c);
   ddsrt_free (prd);
@@ -727,27 +857,26 @@ static void gc_delete_proxy_reader (struct gcreq *gcreq)
 
 static int gcreq_proxy_reader (struct ddsi_proxy_reader *prd)
 {
-  struct gcreq *gcreq = gcreq_new (prd->e.gv->gcreq_queue, gc_delete_proxy_reader);
+  struct ddsi_gcreq *gcreq = ddsi_gcreq_new (prd->e.gv->gcreq_queue, gc_delete_proxy_reader);
   gcreq->arg = prd;
-  gcreq_enqueue (gcreq);
+  ddsi_gcreq_enqueue (gcreq);
   return 0;
 }
 
-int ddsi_delete_proxy_reader (struct ddsi_domaingv *gv, const struct ddsi_guid *guid, ddsrt_wctime_t timestamp, int isimplicit)
+int ddsi_delete_proxy_reader (struct ddsi_domaingv *gv, const struct ddsi_guid *guid, ddsrt_wctime_t timestamp, bool lease_expired)
 {
   struct ddsi_proxy_reader *prd;
-  (void)isimplicit;
+  (void)lease_expired;
   GVLOGDISC ("ddsi_delete_proxy_reader ("PGUIDFMT") ", PGUID (*guid));
 
-  ddsrt_mutex_lock (&gv->lock);
-  if ((prd = entidx_lookup_proxy_reader_guid (gv->entity_index, guid)) == NULL)
+  if ((prd = ddsi_entidx_tryremove_proxy_reader_guid (gv->entity_index, guid)) == NULL)
   {
-    ddsrt_mutex_unlock (&gv->lock);
     GVLOGDISC ("- unknown\n");
     return DDS_RETCODE_BAD_PARAMETER;
   }
-  builtintopic_write_endpoint (gv->builtin_topic_interface, &prd->e, timestamp, false);
-#ifdef DDS_HAS_TYPE_DISCOVERY
+
+  ddsi_builtintopic_write_endpoint (gv->builtin_topic_interface, &prd->e, timestamp, false);
+#ifdef DDS_HAS_TYPELIB
   /* Unregister the proxy guid with the ddsi_type before removing from
      entity index, because a tl_lookup_reply could be pending and will
      trigger an update of the endpoint matching for all endpoints that
@@ -759,16 +888,13 @@ int ddsi_delete_proxy_reader (struct ddsi_domaingv *gv, const struct ddsi_guid *
     ddsi_type_unreg_proxy (gv, prd->c.type_pair->complete, &prd->e.guid);
   }
 #endif
-  entidx_remove_proxy_reader_guid (gv->entity_index, prd);
-  ddsrt_mutex_unlock (&gv->lock);
   GVLOGDISC ("- deleting\n");
-
+    
   /* If the proxy reader is reliable, pretend it has just acked all
      messages: this allows a throttled writer to once again make
      progress, which in turn is necessary for the garbage collector to
      do its work. */
   proxy_reader_set_delete_and_ack_all_messages (prd);
-
   gcreq_proxy_reader (prd);
   return 0;
 }

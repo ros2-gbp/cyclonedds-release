@@ -9,8 +9,12 @@
 
    SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 
-Eclipse Cyclone DDS C API Reference
-===================================
+.. index::
+   single: C API reference
+   single: API; C reference
+
+C API reference
+===============
 
 .. toctree::
    :maxdepth: 2
@@ -18,13 +22,15 @@ Eclipse Cyclone DDS C API Reference
    api/basics
    api/entity
    api/qos
+   api/qosprovider
    api/domain
    api/topic
    api/data
    api/status_conditions
    api/builtin
    api/statistics
-   api/alloc
    api/serialization
    api/internal
    api/deprecated
+   api/psmx
+   api/dynamic

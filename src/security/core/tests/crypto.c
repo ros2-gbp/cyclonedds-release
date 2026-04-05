@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2022 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2022 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <stdlib.h>
 #include <assert.h>
 
@@ -21,10 +20,9 @@
 #include "dds/ddsrt/environ.h"
 #include "dds/ddsrt/heap.h"
 #include "dds/ddsrt/string.h"
-#include "dds/ddsi/ddsi_config_impl.h"
 #include "dds/ddsi/ddsi_domaingv.h"
-#include "dds/ddsi/q_misc.h"
 #include "dds/ddsi/ddsi_xqos.h"
+#include "ddsi__misc.h"
 
 #include "dds/security/dds_security_api.h"
 
@@ -42,11 +40,6 @@ static const char *config =
     "    <ExternalDomainId>0</ExternalDomainId>"
     "    <Tag>\\${CYCLONEDDS_PID}</Tag>"
     "  </Discovery>"
-#ifdef DDS_HAS_SHM
-    "  <SharedMemory>"
-    "    <Enable>false</Enable>"
-    "  </SharedMemory>"
-#endif
     "  <Security>"
     "    <Authentication>"
     "      <Library finalizeFunction=\"finalize_authentication\" initFunction=\"init_authentication\"/>"
@@ -91,10 +84,10 @@ static void init_domain_pp (dds_domainid_t domain_id, const char *id_cert, const
     { NULL, NULL, 0 }
   };
   char *conf = ddsrt_expand_vars_sh (config, &expand_lookup_vars_env, config_vars);
-  CU_ASSERT_EQUAL_FATAL (expand_lookup_unmatched (config_vars), 0);
+  CU_ASSERT_EQ_FATAL (expand_lookup_unmatched (config_vars), 0);
   *domain = dds_create_domain (domain_id, conf);
   *pp = dds_create_participant (domain_id, NULL, NULL);
-  CU_ASSERT_FATAL (*pp > 0);
+  CU_ASSERT_GT_FATAL (*pp, 0);
   ddsrt_free (conf);
 }
 
@@ -109,8 +102,8 @@ static void crypto_init (
 
 static void crypto_fini (void * res[], size_t nres)
 {
-  CU_ASSERT_EQUAL_FATAL (dds_delete (g_domain1), DDS_RETCODE_OK);
-  CU_ASSERT_EQUAL_FATAL (dds_delete (g_domain2), DDS_RETCODE_OK);
+  CU_ASSERT_EQ_FATAL (dds_delete (g_domain1), DDS_RETCODE_OK);
+  CU_ASSERT_EQ_FATAL (dds_delete (g_domain2), DDS_RETCODE_OK);
   if (res != NULL)
   {
     for (size_t i = 0; i < nres; i++)
