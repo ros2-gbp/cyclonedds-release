@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2019 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2019 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <assert.h>
 #include <limits.h>
 
@@ -64,7 +63,7 @@ static void participant_creation_torture(void)
   for (size_t i = 0; i < sizeof(tids) / sizeof(*tids); i++)
   {
     rc = ddsrt_thread_create (&tids[i], "domain_torture_explicit", &tattr, create_participants_thread, 0);
-    CU_ASSERT_FATAL (rc == DDS_RETCODE_OK);
+    CU_ASSERT_EQ_FATAL (rc, DDS_RETCODE_OK);
   }
 
   /* Let the threads do the torturing for a while. */
@@ -76,8 +75,8 @@ static void participant_creation_torture(void)
   {
     uint32_t retval;
     rc = ddsrt_thread_join (tids[i], &retval);
-    CU_ASSERT_FATAL (rc == DDS_RETCODE_OK);
-    CU_ASSERT (retval == 0);
+    CU_ASSERT_EQ_FATAL (rc, DDS_RETCODE_OK);
+    CU_ASSERT_EQ (retval, 0);
   }
 }
 
@@ -104,7 +103,7 @@ CU_Test (ddsc_domain, torture_explicit)
 
   /* Create domain explicitly. */
   domain = dds_create_domain(1, "");
-  CU_ASSERT_FATAL (domain > 0);
+  CU_ASSERT_GT_FATAL (domain, 0);
 
   /* Start creating and deleting participants on the
    * explicit domain in a torturing manner. */
@@ -112,7 +111,7 @@ CU_Test (ddsc_domain, torture_explicit)
 
   /* Delete domain. */
   rc = dds_delete(domain);
-  CU_ASSERT_FATAL (rc == DDS_RETCODE_OK);
+  CU_ASSERT_EQ_FATAL (rc, DDS_RETCODE_OK);
   rc = dds_delete(domain);
-  CU_ASSERT_FATAL (rc != DDS_RETCODE_OK);
+  CU_ASSERT_NEQ_FATAL (rc, DDS_RETCODE_OK);
 }

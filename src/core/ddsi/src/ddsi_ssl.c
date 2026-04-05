@@ -1,21 +1,19 @@
-/*
- * Copyright(c) 2006 to 2022 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
-#include "dds/ddsi/ddsi_tcp.h"
-#include "dds/ddsi/ddsi_ssl.h"
-#include "dds/ddsi/ddsi_config_impl.h"
+// Copyright(c) 2006 to 2022 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include "dds/ddsrt/log.h"
 #include "dds/ddsrt/misc.h"
+#include "ddsi__tcp.h"
+#include "ddsi__ssl.h"
 
-#ifdef DDS_HAS_SSL
+#ifdef DDS_HAS_TCP_TLS
 
 #include <assert.h>
 #include <string.h>
@@ -66,116 +64,65 @@ static int ddsi_ssl_verify (int ok, X509_STORE_CTX *store)
   return ok;
 }
 
-static ssize_t ddsi_ssl_read (SSL *ssl, void *buf, size_t len, dds_return_t *rc)
+ddsrt_nonnull ((1, 2, 4)) ddsrt_attribute_warn_unused_result
+static dds_return_t ddsi_ssl_read (SSL *ssl, void *buf, size_t len, size_t *bytes_read)
 {
   assert (len <= INT32_MAX);
   if (SSL_get_shutdown (ssl) != 0)
   {
-    *rc = DDS_RETCODE_ERROR;
-    return -1;
+    *bytes_read = 0;
+    return DDS_RETCODE_ERROR;
   }
 
-  /* Returns -1 on error or 0 on shutdown */
   int rcvd = SSL_read (ssl, buf, (int) len);
   switch (SSL_get_error (ssl, rcvd))
   {
     case SSL_ERROR_NONE:
-      *rc = DDS_RETCODE_OK;
-      break;
+      assert (rcvd > 0);
+      *bytes_read = (size_t) rcvd;
+      return DDS_RETCODE_OK;
     case SSL_ERROR_WANT_READ:
     case SSL_ERROR_WANT_WRITE:
-      *rc = DDS_RETCODE_TRY_AGAIN;
-      rcvd = -1;
-      break;
+      *bytes_read = 0;
+      return DDS_RETCODE_TRY_AGAIN;
     case SSL_ERROR_ZERO_RETURN:
+      // connection closed
+      *bytes_read = 0;
+      return DDS_RETCODE_OK;
     default:
-      /* Connection closed or error */
-      *rc = DDS_RETCODE_ERROR;
-      rcvd = -1;
-      break;
+      *bytes_read = 0;
+      return DDS_RETCODE_ERROR;
   }
-
-  return rcvd;
 }
 
-static ssize_t ddsi_ssl_write (SSL *ssl, const void *buf, size_t len, dds_return_t *rc)
+ddsrt_nonnull ((1, 2))
+static dds_return_t ddsi_ssl_write (SSL *ssl, const void *buf, size_t len, size_t *bytes_written)
 {
   assert(len <= INT32_MAX);
 
   if (SSL_get_shutdown (ssl) != 0)
-  {
-    *rc = DDS_RETCODE_ERROR;
-    return -1;
-  }
+    return DDS_RETCODE_ERROR;
 
-  /* Returns -1 on error or 0 on shutdown */
   int sent = SSL_write (ssl, buf, (int) len);
   switch (SSL_get_error (ssl, sent))
   {
     case SSL_ERROR_NONE:
-      *rc = DDS_RETCODE_OK;
-      break;
+      assert (sent > 0);
+      if (bytes_written)
+        *bytes_written = (size_t) len;
+      return DDS_RETCODE_OK;
     case SSL_ERROR_WANT_READ:
     case SSL_ERROR_WANT_WRITE:
-      *rc = DDS_RETCODE_TRY_AGAIN;
-      sent = -1;
-      break;
+      return DDS_RETCODE_TRY_AGAIN;
     case SSL_ERROR_ZERO_RETURN:
+      // connection closed
+      if (bytes_written)
+        *bytes_written = 0;
+      return DDS_RETCODE_OK;
     default:
-      /* Connection closed or error */
-      *rc = DDS_RETCODE_ERROR;
-      sent = -1;
-      break;
+      return DDS_RETCODE_ERROR;
   }
-
-  return sent;
 }
-
-/* Standard OpenSSL init and thread support routines. See O'Reilly. */
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-static unsigned long ddsi_ssl_id (void)
-{
-  return (unsigned long) ddsrt_gettid ();
-}
-
-typedef struct CRYPTO_dynlock_value {
-  ddsrt_mutex_t m_mutex;
-} CRYPTO_dynlock_value;
-
-static CRYPTO_dynlock_value *ddsi_ssl_locks = NULL;
-
-static void ddsi_ssl_dynlock_lock (int mode, CRYPTO_dynlock_value *lock, const char *file, int line)
-{
-  (void) file;
-  (void) line;
-  if (mode & CRYPTO_LOCK)
-    ddsrt_mutex_lock (&lock->m_mutex);
-  else
-    ddsrt_mutex_unlock (&lock->m_mutex);
-}
-
-static void ddsi_ssl_lock (int mode, int n, const char *file, int line)
-{
-  ddsi_ssl_dynlock_lock (mode, &ddsi_ssl_locks[n], file, line);
-}
-
-static CRYPTO_dynlock_value *ddsi_ssl_dynlock_create (const char *file, int line)
-{
-  (void) file;
-  (void) line;
-  CRYPTO_dynlock_value *val = ddsrt_malloc (sizeof (*val));
-  ddsrt_mutex_init (&val->m_mutex);
-  return val;
-}
-
-static void ddsi_ssl_dynlock_destroy (CRYPTO_dynlock_value *lock, const char *file, int line)
-{
-  (void) file;
-  (void) line;
-  ddsrt_mutex_destroy (&lock->m_mutex);
-  ddsrt_free (lock);
-}
-#endif
 
 static int ddsi_ssl_password (char *buf, int num, int rwflag, void *udata)
 {
@@ -363,48 +310,15 @@ static bool ddsi_ssl_init (struct ddsi_domaingv *gv)
   SSL_load_error_strings ();
   SSL_library_init ();
   OpenSSL_add_all_algorithms ();
-
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-  {
-    const int locks = CRYPTO_num_locks ();
-    assert (locks >= 0);
-    ddsi_ssl_locks = ddsrt_malloc (sizeof (CRYPTO_dynlock_value) * (size_t) locks);
-    for (int i = 0; i < locks; i++)
-      ddsrt_mutex_init (&ddsi_ssl_locks[i].m_mutex);
-  }
-#endif
-  /* Leave these in place: OpenSSL 1.1 defines them as no-op macros that not even reference the symbol,
-     therefore leaving them in means we get compile time errors if we the library expects the callbacks
-     to be defined and we somehow failed to detect that previously */
-  CRYPTO_set_id_callback (ddsi_ssl_id);
-  CRYPTO_set_locking_callback (ddsi_ssl_lock);
-  CRYPTO_set_dynlock_create_callback (ddsi_ssl_dynlock_create);
-  CRYPTO_set_dynlock_lock_callback (ddsi_ssl_dynlock_lock);
-  CRYPTO_set_dynlock_destroy_callback (ddsi_ssl_dynlock_destroy);
   ddsi_ssl_ctx = ddsi_ssl_ctx_init (gv);
-
   return (ddsi_ssl_ctx != NULL);
 }
 
 static void ddsi_ssl_fini (void)
 {
   SSL_CTX_free (ddsi_ssl_ctx);
-  CRYPTO_set_id_callback (0);
-  CRYPTO_set_locking_callback (0);
-  CRYPTO_set_dynlock_create_callback (0);
-  CRYPTO_set_dynlock_lock_callback (0);
-  CRYPTO_set_dynlock_destroy_callback (0);
   ERR_free_strings ();
   EVP_cleanup ();
-
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-  {
-    const int locks = CRYPTO_num_locks ();
-    for (int i = 0; i < locks; i++)
-      ddsrt_mutex_destroy (&ddsi_ssl_locks[i].m_mutex);
-    ddsrt_free (ddsi_ssl_locks);
-  }
-#endif
 }
 
 void ddsi_ssl_config_plugin (struct ddsi_ssl_plugins *plugin)
@@ -420,4 +334,4 @@ void ddsi_ssl_config_plugin (struct ddsi_ssl_plugins *plugin)
   plugin->accept = ddsi_ssl_accept;
 }
 
-#endif /* DDS_HAS_SSL */
+#endif /* DDS_HAS_TCP_TLS */

@@ -137,9 +137,7 @@ No major changes between the DDS Security plugins in OpenSplice and Cyclone
 are expected.
 
 The DDS Security plugins require OpenSSL. Cyclone DDS already uses OpenSSL.
-However, it expects (or at least it's preferred to have) version 1.1 or newer,
-while the OpenSplice Security plugins are build against 1.0.2. There are some
-API changes between the two versions. This will take some porting effort.
+We recommend a fully patched and supported version but 1.1.1 will still work.
 
 The build system should be ported from makefiles to cmake files.
 
@@ -193,7 +191,7 @@ That porting shouldn't be that hard. However, it will probably take a while.
 The DDSI Port doesn't have to be a big bang. It can be split up into various
 different pull requests. Examples are
 - Extend configuration XML parsing with the security configuration (done).
-- Extend nn_qos with security related policies. Fill them with values from the
+- Extend ddsi_qos with security related policies. Fill them with values from the
   configuration when applicable (done).
 - Add DDS Security endpoints that are non-volatile (done).
 - Add DDS Security endpoint that is volatile. This change has more impact than
@@ -227,7 +225,7 @@ policy, which isn't a primitive. To keep in line with the QoS API, we could add
 something like:
 ```cpp
 typedef struct dds_properties_t; /* opaque type in API, but mapped to
-                                    nn_property_qospolicy_t internally */
+                                    ddsi_property_qospolicy_t internally */
 dds_properties_t *dds_properties_create();
 void dds_properties_delete(dds_properties_t *);
 void dds_properties_merge(dds_properties_t *, dds_properties_t *);

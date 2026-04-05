@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2022 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2022 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include "sockets_priv.h"
 #include "dds/ddsrt/cdtors.h"
 #include "dds/ddsrt/threads.h"
@@ -28,15 +27,17 @@ CU_Clean(ddsrt_select)
 
 static struct timeval tv_init = { .tv_sec = -2, .tv_usec = -2 };
 
-#define CU_ASSERT_TIMEVAL_EQUAL(tv, secs, usecs) \
-  CU_ASSERT((tv.tv_sec == secs) && (tv.tv_usec == usecs))
+#define CU_ASSERT_TIMEVAL_EQ(tv, secs, usecs) do { \
+    CU_ASSERT_EQ (tv.tv_sec, secs); \
+    CU_ASSERT_EQ (tv.tv_usec, usecs); \
+  } while (0) \
 
 /* Simple test to validate that duration to timeval conversion is correct. */
 CU_Test(ddsrt_select, duration_to_timeval)
 {
+  const int usecs_max = 999999;
   struct timeval tv, *tvptr;
   dds_duration_t nsecs_max;
-  dds_duration_t usecs_max = 999999;
   dds_duration_t secs_max;
   DDSRT_STATIC_ASSERT (CHAR_BIT * sizeof (ddsrt_tv_sec_t) == 32 || CHAR_BIT * sizeof (ddsrt_tv_sec_t) == 64);
   DDSRT_WARNING_MSVC_OFF(6326)
@@ -47,68 +48,68 @@ CU_Test(ddsrt_select, duration_to_timeval)
   DDSRT_WARNING_MSVC_ON(6326)
 
   if (DDS_INFINITY > secs_max) {
-    CU_ASSERT_EQUAL_FATAL(secs_max, INT32_MAX);
+    CU_ASSERT_EQ_FATAL (secs_max, INT32_MAX);
     nsecs_max = DDS_INFINITY * secs_max;
   } else {
-    CU_ASSERT_EQUAL_FATAL(secs_max, DDS_INFINITY);
+    CU_ASSERT_EQ_FATAL (secs_max, DDS_INFINITY);
     nsecs_max = DDS_INFINITY / DDS_NSECS_IN_SEC;
   }
 
   tv = tv_init;
   tvptr = ddsrt_duration_to_timeval_ceil(INT64_MIN, &tv);
-  CU_ASSERT_PTR_EQUAL(tvptr, &tv);
-  CU_ASSERT_TIMEVAL_EQUAL(tv, 0, 0);
+  CU_ASSERT_EQ (tvptr, &tv);
+  CU_ASSERT_TIMEVAL_EQ(tv, 0, 0);
 
   tv = tv_init;
   tvptr = ddsrt_duration_to_timeval_ceil(INT64_MIN + 1, &tv);
-  CU_ASSERT_PTR_EQUAL(tvptr, &tv);
-  CU_ASSERT_TIMEVAL_EQUAL(tv, 0, 0);
+  CU_ASSERT_EQ (tvptr, &tv);
+  CU_ASSERT_TIMEVAL_EQ(tv, 0, 0);
 
   tv = tv_init;
   tvptr = ddsrt_duration_to_timeval_ceil(-2, &tv);
-  CU_ASSERT_PTR_EQUAL(tvptr, &tv);
-  CU_ASSERT_TIMEVAL_EQUAL(tv, 0, 0);
+  CU_ASSERT_EQ (tvptr, &tv);
+  CU_ASSERT_TIMEVAL_EQ(tv, 0, 0);
 
   tv = tv_init;
   tvptr = ddsrt_duration_to_timeval_ceil(-1, &tv);
-  CU_ASSERT_PTR_EQUAL(tvptr, &tv);
-  CU_ASSERT_TIMEVAL_EQUAL(tv, 0, 0);
+  CU_ASSERT_EQ (tvptr, &tv);
+  CU_ASSERT_TIMEVAL_EQ(tv, 0, 0);
 
   tv = tv_init;
   tvptr = ddsrt_duration_to_timeval_ceil(0, &tv);
-  CU_ASSERT_PTR_EQUAL(tvptr, &tv);
-  CU_ASSERT_TIMEVAL_EQUAL(tv, 0, 0);
+  CU_ASSERT_EQ (tvptr, &tv);
+  CU_ASSERT_TIMEVAL_EQ(tv, 0, 0);
 
   tv = tv_init;
   tvptr = ddsrt_duration_to_timeval_ceil(nsecs_max - 1, &tv);
-  CU_ASSERT_PTR_EQUAL(tvptr, &tv);
-  CU_ASSERT_TIMEVAL_EQUAL(tv, secs_max, usecs_max);
+  CU_ASSERT_EQ (tvptr, &tv);
+  CU_ASSERT_TIMEVAL_EQ(tv, secs_max, usecs_max);
 
   tv = tv_init;
   tvptr = ddsrt_duration_to_timeval_ceil(nsecs_max, &tv);
-  CU_ASSERT_PTR_EQUAL(tvptr, &tv);
-  CU_ASSERT_TIMEVAL_EQUAL(tv, secs_max, usecs_max);
+  CU_ASSERT_EQ (tvptr, &tv);
+  CU_ASSERT_TIMEVAL_EQ(tv, secs_max, usecs_max);
 
   tv = tv_init;
   tvptr = ddsrt_duration_to_timeval_ceil(nsecs_max + 1, &tv);
-  CU_ASSERT_PTR_EQUAL(tvptr, &tv);
-  CU_ASSERT_TIMEVAL_EQUAL(tv, secs_max, usecs_max);
+  CU_ASSERT_EQ (tvptr, &tv);
+  CU_ASSERT_TIMEVAL_EQ(tv, secs_max, usecs_max);
 
   tv = tv_init;
   tvptr = ddsrt_duration_to_timeval_ceil(DDS_INFINITY - 1, &tv);
-  CU_ASSERT_PTR_EQUAL(tvptr, &tv);
-  CU_ASSERT_TIMEVAL_EQUAL(tv, secs_max, usecs_max);
+  CU_ASSERT_EQ (tvptr, &tv);
+  CU_ASSERT_TIMEVAL_EQ(tv, secs_max, usecs_max);
 
   tv = tv_init;
   tvptr = ddsrt_duration_to_timeval_ceil(DDS_INFINITY, &tv);
-  CU_ASSERT_PTR_EQUAL(tvptr, NULL);
-  CU_ASSERT_TIMEVAL_EQUAL(tv, 0, 0);
+  CU_ASSERT_EQ (tvptr, NULL);
+  CU_ASSERT_TIMEVAL_EQ(tv, 0, 0);
 }
 
 typedef struct {
   dds_duration_t delay;
   dds_duration_t skew;
-  ddsrt_socket_t sock;
+  ddsrt_socket_ext_t sockext;
 } thread_arg_t;
 
 static void
@@ -124,25 +125,25 @@ sockets_pipe(ddsrt_socket_t socks[2])
   addr.sin_port = 0;
 
   fprintf (stderr, "sockets_pipe ... begin\n");
-  CU_ASSERT_PTR_NOT_NULL_FATAL(socks);
+  CU_ASSERT_NEQ_FATAL (socks, NULL);
   rc = ddsrt_socket(&sock, AF_INET, SOCK_STREAM, 0);
-  CU_ASSERT_EQUAL_FATAL(rc, DDS_RETCODE_OK);
+  CU_ASSERT_EQ_FATAL (rc, DDS_RETCODE_OK);
   rc = ddsrt_socket(&socks[1], AF_INET, SOCK_STREAM, 0);
-  CU_ASSERT_EQUAL_FATAL(rc, DDS_RETCODE_OK);
+  CU_ASSERT_EQ_FATAL (rc, DDS_RETCODE_OK);
   rc = ddsrt_bind(sock, (struct sockaddr *)&addr, sizeof(addr));
-  CU_ASSERT_EQUAL_FATAL(rc, DDS_RETCODE_OK);
+  CU_ASSERT_EQ_FATAL (rc, DDS_RETCODE_OK);
   addrlen = (socklen_t) sizeof(addr);
   rc = ddsrt_getsockname(sock, (struct sockaddr *)&addr, &addrlen);
-  CU_ASSERT_EQUAL_FATAL(rc, DDS_RETCODE_OK);
+  CU_ASSERT_EQ_FATAL (rc, DDS_RETCODE_OK);
   fprintf (stderr, "sockets_pipe ... listen\n");
   rc = ddsrt_listen(sock, 1);
-  CU_ASSERT_EQUAL_FATAL(rc, DDS_RETCODE_OK);
+  CU_ASSERT_EQ_FATAL (rc, DDS_RETCODE_OK);
   fprintf (stderr, "sockets_pipe ... connect\n");
   rc = ddsrt_connect(socks[1], (struct sockaddr *)&addr, sizeof(addr));
-  CU_ASSERT_EQUAL_FATAL(rc, DDS_RETCODE_OK);
+  CU_ASSERT_EQ_FATAL (rc, DDS_RETCODE_OK);
   fprintf (stderr, "sockets_pipe ... accept\n");
   rc = ddsrt_accept(sock, NULL, NULL, &socks[0]);
-  CU_ASSERT_EQUAL_FATAL(rc, DDS_RETCODE_OK);
+  CU_ASSERT_EQ_FATAL (rc, DDS_RETCODE_OK);
   ddsrt_close(sock);
   fprintf (stderr, "sockets_pipe ... done\n");
 }
@@ -162,13 +163,13 @@ static uint32_t select_timeout_routine(void *ptr)
 #if LWIP_SOCKET
   DDSRT_WARNING_GNUC_OFF(sign-conversion)
 #endif
-  FD_SET(arg->sock, &rdset);
+  FD_SET(arg->sockext.sock, &rdset);
 #if LWIP_SOCKET
   DDSRT_WARNING_GNUC_ON(sign-conversion)
 #endif
 
   before = dds_time();
-  rc = ddsrt_select(arg->sock + 1, &rdset, NULL, NULL, arg->delay);
+  rc = ddsrt_select(arg->sockext.sock + 1, &rdset, NULL, NULL, arg->delay);
   after = dds_time();
   delay = after - before;
 
@@ -199,24 +200,25 @@ CU_Test(ddsrt_select, timeout)
      confidence that time calculation is not completely broken, it is by
      no means proof that time calculation is entirely correct! */
   arg.skew = DDS_MSECS(1000);
-  arg.sock = socks[0];
+  ddsrt_socket_ext_init (&arg.sockext, socks[0]);
 
   fprintf (stderr, "create thread\n");
   ddsrt_threadattr_init(&attr);
   rc = ddsrt_thread_create(&thr, "select_timeout", &attr, &select_timeout_routine, &arg);
-  CU_ASSERT_EQUAL_FATAL(rc, DDS_RETCODE_OK);
+  CU_ASSERT_EQ_FATAL (rc, DDS_RETCODE_OK);
   /* Allow the thread some time to get ready. */
   dds_sleepfor(arg.delay * 2);
   /* Send data to the read socket to avoid blocking indefinitely. */
   fprintf (stderr, "write data\n");
-  ssize_t sent = 0;
+  size_t sent = 0;
   rc = ddsrt_send(socks[1], mesg, sizeof(mesg), 0, &sent);
-  CU_ASSERT_EQUAL_FATAL(rc, DDS_RETCODE_OK);
+  CU_ASSERT_EQ_FATAL (rc, DDS_RETCODE_OK);
   fprintf (stderr, "join thread\n");
   rc = ddsrt_thread_join(thr, &res);
-  CU_ASSERT_EQUAL_FATAL(rc, DDS_RETCODE_OK);
-  CU_ASSERT_EQUAL(res, 1);
+  CU_ASSERT_EQ_FATAL (rc, DDS_RETCODE_OK);
+  CU_ASSERT_EQ (res, 1);
 
+  ddsrt_socket_ext_fini (&arg.sockext);
   (void)ddsrt_close(socks[0]);
   (void)ddsrt_close(socks[1]);
 }
@@ -226,21 +228,21 @@ static uint32_t recv_routine(void *ptr)
   thread_arg_t *arg = (thread_arg_t*)ptr;
 
   fd_set rdset;
-  ssize_t rcvd = -1;
+  size_t rcvd;
   char buf[sizeof(mesg)];
 
   FD_ZERO(&rdset);
 #if LWIP_SOCKET
   DDSRT_WARNING_GNUC_OFF(sign-conversion)
 #endif
-  FD_SET(arg->sock, &rdset);
+  FD_SET(arg->sockext.sock, &rdset);
 #if LWIP_SOCKET
   DDSRT_WARNING_GNUC_ON(sign-conversion)
 #endif
 
-  (void)ddsrt_select(arg->sock + 1, &rdset, NULL, NULL, arg->delay);
+  (void)ddsrt_select(arg->sockext.sock + 1, &rdset, NULL, NULL, arg->delay);
 
-  if (ddsrt_recv(arg->sock, buf, sizeof(buf), 0, &rcvd) == DDS_RETCODE_OK) {
+  if (ddsrt_recv(arg->sockext.sock, buf, sizeof(buf), 0, &rcvd) == DDS_RETCODE_OK) {
     return (rcvd == sizeof(mesg) && memcmp(buf, mesg, sizeof(mesg)) == 0);
   }
 
@@ -260,21 +262,22 @@ CU_Test(ddsrt_select, send_recv)
 
   arg.delay = DDS_SECS(1);
   arg.skew = 0;
-  arg.sock = socks[0];
+  ddsrt_socket_ext_init (&arg.sockext, socks[0]);
 
   ddsrt_threadattr_init(&attr);
   rc = ddsrt_thread_create(&thr, "recv", &attr, &recv_routine, &arg);
-  CU_ASSERT_EQUAL_FATAL(rc, DDS_RETCODE_OK);
+  CU_ASSERT_EQ_FATAL (rc, DDS_RETCODE_OK);
 
-  ssize_t sent = 0;
+  size_t sent = 0;
   rc = ddsrt_send(socks[1], mesg, sizeof(mesg), 0, &sent);
-  CU_ASSERT_EQUAL(rc, DDS_RETCODE_OK);
-  CU_ASSERT_EQUAL(sent, sizeof(mesg));
+  CU_ASSERT_EQ (rc, DDS_RETCODE_OK);
+  CU_ASSERT_EQ (sent, sizeof(mesg));
 
   rc = ddsrt_thread_join(thr, &res);
-  CU_ASSERT_EQUAL(rc, DDS_RETCODE_OK);
-  CU_ASSERT_EQUAL(res, 1);
+  CU_ASSERT_EQ (rc, DDS_RETCODE_OK);
+  CU_ASSERT_EQ (res, 1);
 
+  ddsrt_socket_ext_fini (&arg.sockext);
   (void)ddsrt_close(socks[0]);
   (void)ddsrt_close(socks[1]);
 }
@@ -284,7 +287,7 @@ static uint32_t recvmsg_routine(void *ptr)
   thread_arg_t *arg = (thread_arg_t*)ptr;
 
   fd_set rdset;
-  ssize_t rcvd = -1;
+  size_t rcvd;
   char buf[sizeof(mesg)];
   ddsrt_msghdr_t msg;
   ddsrt_iovec_t iov;
@@ -299,14 +302,14 @@ static uint32_t recvmsg_routine(void *ptr)
 #if LWIP_SOCKET
   DDSRT_WARNING_GNUC_OFF(sign-conversion)
 #endif
-  FD_SET(arg->sock, &rdset);
+  FD_SET(arg->sockext.sock, &rdset);
 #if LWIP_SOCKET
   DDSRT_WARNING_GNUC_ON(sign-conversion)
 #endif
 
-  (void)ddsrt_select(arg->sock + 1, &rdset, NULL, NULL, arg->delay);
+  (void)ddsrt_select(arg->sockext.sock + 1, &rdset, NULL, NULL, arg->delay);
 
-  if (ddsrt_recvmsg(arg->sock, &msg, 0, &rcvd) == DDS_RETCODE_OK) {
+  if (ddsrt_recvmsg(&arg->sockext, &msg, 0, &rcvd) == DDS_RETCODE_OK) {
     return (rcvd == sizeof(mesg) && memcmp(buf, mesg, sizeof(mesg)) == 0);
   }
 
@@ -325,13 +328,13 @@ CU_Test(ddsrt_select, sendmsg_recvmsg)
   sockets_pipe(socks);
 
   memset(&arg, 0, sizeof(arg));
-  arg.sock = socks[0];
+  ddsrt_socket_ext_init (&arg.sockext, socks[0]);
 
   ddsrt_threadattr_init(&attr);
   rc = ddsrt_thread_create(&thr, "recvmsg", &attr, &recvmsg_routine, &arg);
-  CU_ASSERT_EQUAL_FATAL(rc, DDS_RETCODE_OK);
+  CU_ASSERT_EQ_FATAL (rc, DDS_RETCODE_OK);
 
-  ssize_t sent = 0;
+  size_t sent = 0;
   ddsrt_msghdr_t msg;
   ddsrt_iovec_t iov;
   memset(&msg, 0, sizeof(msg));
@@ -341,13 +344,14 @@ CU_Test(ddsrt_select, sendmsg_recvmsg)
   msg.msg_iovlen = 1;
 
   rc = ddsrt_sendmsg(socks[1], &msg, 0, &sent);
-  CU_ASSERT_EQUAL(rc, DDS_RETCODE_OK);
-  CU_ASSERT_EQUAL(sent, sizeof(mesg));
+  CU_ASSERT_EQ (rc, DDS_RETCODE_OK);
+  CU_ASSERT_EQ (sent, sizeof(mesg));
 
   rc = ddsrt_thread_join(thr, &res);
-  CU_ASSERT_EQUAL_FATAL(rc, DDS_RETCODE_OK);
-  CU_ASSERT_EQUAL(res, 1);
+  CU_ASSERT_EQ_FATAL (rc, DDS_RETCODE_OK);
+  CU_ASSERT_EQ (res, 1);
 
+  ddsrt_socket_ext_fini (&arg.sockext);
   (void)ddsrt_close(socks[0]);
   (void)ddsrt_close(socks[1]);
 }

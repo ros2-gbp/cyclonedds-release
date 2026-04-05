@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2022 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2022 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <string.h>
 #include "dds__listener.h"
 #include "dds__participant.h"
@@ -48,7 +47,7 @@ const struct dds_entity_deriver dds_entity_deriver_subscriber = {
   .invoke_cbs_for_pending_events = dds_entity_deriver_dummy_invoke_cbs_for_pending_events
 };
 
-dds_entity_t dds__create_subscriber_l (dds_participant *participant, bool implicit, const dds_qos_t *qos, const dds_listener_t *listener)
+dds_entity_t dds__create_subscriber_l (struct dds_participant *participant, bool implicit, const dds_qos_t *qos, const dds_listener_t *listener)
 {
   /* participant entity lock must be held */
   dds_subscriber *sub;
@@ -151,7 +150,7 @@ void dds_subscriber_adjust_materialize_data_on_readers (dds_subscriber *sub, boo
   else
   {
     assert ((sub->materialize_data_on_readers & DDS_SUB_MATERIALIZE_DATA_ON_READERS_MASK) > 0);
-    if (--sub->materialize_data_on_readers == 0)
+    if ((--sub->materialize_data_on_readers & DDS_SUB_MATERIALIZE_DATA_ON_READERS_MASK) == 0)
     {
       sub->materialize_data_on_readers &= ~DDS_SUB_MATERIALIZE_DATA_ON_READERS_FLAG;
       propagate = true;

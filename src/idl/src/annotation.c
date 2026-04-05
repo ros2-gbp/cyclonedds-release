@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2021 to 2022 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2021 to 2022 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <assert.h>
 #include <limits.h>
 #include <stdio.h>
@@ -829,7 +828,10 @@ annotate_datarepresentation(
   assert(annotation_appl->parameters);
   idl_literal_t *literal = annotation_appl->parameters->const_expr;
   assert(idl_type(literal) == IDL_BITMASK);
-  allowable_data_representations_t val = (allowable_data_representations_t)literal->value.uint32;  //native type of datarepresentation is uint32_t
+  //native type of datarepresentation is uint32_t
+  //idlc internally represents all bitmask constants as 64-bits
+  assert (literal->value.uint64 <= UINT32_MAX);
+  allowable_data_representations_t val = (allowable_data_representations_t)literal->value.uint64;
 
   if (0 == val) {
     idl_error(pstate, idl_location(annotation_appl),
@@ -841,17 +843,12 @@ annotate_datarepresentation(
     ((idl_module_t*)node)->data_representation.annotation = annotation_appl;
     ((idl_module_t*)node)->data_representation.value = val;
   } else if (idl_is_struct(node)) {
-    if (IDL_FINAL != ((idl_struct_t*)node)->extensibility.value && !(val & IDL_DATAREPRESENTATION_FLAG_XCDR2)) {
-      idl_error(pstate, idl_location(annotation_appl),
-        "Datarepresentation does not support XCDR2, but non-final extensibility set.");
-      return IDL_RETCODE_SEMANTIC_ERROR;
-    }
     ((idl_struct_t*)node)->data_representation.annotation = annotation_appl;
     ((idl_struct_t*)node)->data_representation.value = val;
   } else if (idl_is_union(node)) {
-    if (IDL_FINAL != ((idl_union_t*)node)->extensibility.value && !(val & IDL_DATAREPRESENTATION_FLAG_XCDR2)) {
+    if (((idl_union_t*)node)->extensibility.value == IDL_MUTABLE && !(val & IDL_DATAREPRESENTATION_FLAG_XCDR2)) {
       idl_error(pstate, idl_location(annotation_appl),
-        "Datarepresentation does not support XCDR2, but non-final extensibility set.");
+        "Datarepresentation does not support XCDR2, but mutable extensibility set.");
       return IDL_RETCODE_SEMANTIC_ERROR;
     }
     ((idl_union_t*)node)->data_representation.annotation = annotation_appl;

@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2021 to 2022 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2021 to 2022 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <stdlib.h>
 #include <assert.h>
 #include <errno.h>
@@ -18,6 +17,7 @@
 #include <stdbool.h>
 #include <inttypes.h>
 
+#include "idl/heap.h"
 #include "idl/processor.h"
 #include "idl/string.h"
 #include "annotation.h"
@@ -36,7 +36,7 @@ static const idl_source_t builtin_source =
 #define BUILTIN_POSITION { &builtin_source, &builtin_file, 1, 1 }
 #define BUILTIN_LOCATION { BUILTIN_POSITION, BUILTIN_POSITION }
 static const idl_name_t builtin_name =
-  { { BUILTIN_LOCATION }, "" };
+  { { BUILTIN_LOCATION }, "", false };
 
 static idl_retcode_t parse_grammar(idl_pstate_t *pstate, idl_token_t *tok);
 
@@ -89,6 +89,7 @@ parse_builtin_annotations(
           if (save) {
             name.symbol.location = token.location;
             name.identifier = token.value.str;
+            name.is_annotation = true;
           }
           /* fall through */
         case IDL_TOKEN_STRING_LITERAL:
@@ -96,7 +97,7 @@ parse_builtin_annotations(
         case IDL_TOKEN_COMMENT:
         case IDL_TOKEN_LINE_COMMENT:
           if (token.value.str && !save) {
-            free(token.value.str);
+            idl_free(token.value.str);
           }
           break;
         default:
@@ -119,7 +120,7 @@ parse_builtin_annotations(
     }
 
     if (name.identifier) {
-      free(name.identifier);
+      idl_free(name.identifier);
     }
 
     /* builtin annotations must not declare more than one annotation per block
@@ -146,7 +147,7 @@ idl_create_pstate(
   idl_pstate_t *pstate;
 
   (void)flags;
-  if (!(pstate = calloc(1, sizeof(*pstate))))
+  if (!(pstate = idl_calloc(1, sizeof(*pstate))))
     goto err_pstate;
   if (!(pstate->parser.yypstate = idl_yypstate_new()))
     goto err_yypstate;
@@ -182,7 +183,7 @@ idl_create_pstate(
 err_scope:
   idl_yypstate_delete(pstate->parser.yypstate);
 err_yypstate:
-  free(pstate);
+  idl_free(pstate);
 err_pstate:
   return IDL_RETCODE_NO_MEMORY;
 }
@@ -194,7 +195,7 @@ static void delete_source(idl_source_t *src)
   for (idl_source_t *n, *s=src; s; s = n) {
     n = s->next;
     delete_source(s->includes);
-    free(s);
+    idl_free(s);
   }
 }
 
@@ -217,20 +218,20 @@ void idl_delete_pstate(idl_pstate_t *pstate)
     for (idl_file_t *n, *f=pstate->files; f; f = n) {
       n = f->next;
       if (f->name)
-        free(f->name);
-      free(f);
+        idl_free(f->name);
+      idl_free(f);
     }
     /* paths */
     for (idl_file_t *n, *f=pstate->paths; f; f = n) {
       n = f->next;
       if (f->name)
-        free(f->name);
-      free(f);
+        idl_free(f->name);
+      idl_free(f);
     }
     /* buffer */
     if (pstate->buffer.data)
-      free(pstate->buffer.data);
-    free(pstate);
+      idl_free(pstate->buffer.data);
+    idl_free(pstate);
   }
 }
 
@@ -292,9 +293,8 @@ idl_warning(
 {
   va_list ap;
 
-  for (size_t n = 0; n < pstate->config.n_disable_warnings; n++)
-    if (pstate->config.disable_warnings[n] == warning)
-      return;
+  if (pstate->track_warning && !pstate->track_warning(warning))
+    return;
 
   va_start(ap, fmt);
   idl_log(pstate, IDL_LC_WARNING, loc, fmt, ap);
@@ -455,11 +455,12 @@ validate_datarepresentation(
   (void) path;
   (void) user_data;
 
+  assert (idl_is_struct(node) || idl_is_union(node));
   allowable_data_representations_t val = idl_allowable_data_representations(node);
-  if ((idl_is_extensible(node, IDL_APPENDABLE) || idl_is_extensible(node, IDL_MUTABLE)) &&
-      !(val & IDL_DATAREPRESENTATION_FLAG_XCDR2)) {
+  idl_requires_xcdr2_t requires_xcdr2 = idl_is_struct(node) ? ((idl_struct_t *)node)->requires_xcdr2 : ((idl_union_t *)node)->requires_xcdr2;
+  if (requires_xcdr2 == IDL_REQUIRES_XCDR2_TRUE && !(val & IDL_DATAREPRESENTATION_FLAG_XCDR2)) {
     idl_error(pstate, idl_location(node),
-      "Datarepresentation does not support XCDR2, but non-final extensibility set.");
+      "Datarepresentation does not support XCDR2, but mutable extensibility set.");
     return IDL_RETCODE_SEMANTIC_ERROR;
   }
 
@@ -536,7 +537,7 @@ grammar:
         ret = parse_grammar(pstate, &tok);
       }
     }
-    /* free memory associated with token value */
+    /* idl_free memory associated with token value */
     switch (tok.code) {
       case '\n':
         pstate->scanner.state = IDL_SCAN;
@@ -547,7 +548,7 @@ grammar:
       case IDL_TOKEN_COMMENT:
       case IDL_TOKEN_LINE_COMMENT:
         if (tok.value.str)
-          free(tok.value.str);
+          idl_free(tok.value.str);
         break;
       default:
         break;
@@ -564,6 +565,11 @@ grammar:
       break;
     }
   }
+
+  if ((ret = idl_set_xcdr2_required(pstate->root) != IDL_RETCODE_OK))
+    goto err;
+  if ((ret = idl_set_xcdr2_is_default(pstate->root) != IDL_RETCODE_OK))
+    goto err;
 
   idl_visitor_t visitor;
   memset(&visitor, 0, sizeof(visitor));
@@ -585,8 +591,6 @@ grammar:
   if ((ret = validate_bitbound(pstate)))
     goto err;
   if ((ret = idl_propagate_autoid(pstate, pstate->root, IDL_SEQUENTIAL)) != IDL_RETCODE_OK)
-    goto err;
-  if ((ret = idl_set_xcdr2_required(pstate->root) != IDL_RETCODE_OK))
     goto err;
 
   set_nestedness(pstate, pstate->root, pstate->config.default_nested);

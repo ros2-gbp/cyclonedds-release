@@ -1,3 +1,13 @@
+// Copyright(c) 2006 to 2021 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 /** @file qos_utests.c
  *  @brief Unit tests for qos APIs
  *
@@ -12,8 +22,8 @@
 #include "dds/ddsrt/io.h"
 #include "dds/ddsi/ddsi_tran.h"
 #include "dds/ddsi/ddsi_domaingv.h"
-#include "dds/ddsi/q_xevent.h"
-#include "dds/ddsi/q_thread.h"
+#include "dds/ddsi/ddsi_thread.h"
+#include "ddsi__xevent.h"
 #include "dds/security/dds_security_api.h"
 #include "dds/security/dds_security_api_authentication.h"
 #include "dds/security/core/dds_security_serialize.h"
@@ -21,6 +31,7 @@
 #include "dds/security/openssl_support.h"
 #include "CUnit/CUnit.h"
 #include "CUnit/Test.h"
+#include "common/src/handshake_helper.h"
 #include "common/src/loader.h"
 #include "config_env.h"
 #include "auth_tokens.h"
@@ -178,12 +189,6 @@ typedef enum {
     HANDSHAKE_FINAL
 } HandshakeStep_t;
 
-
-struct octet_seq {
-    unsigned char  *data;
-    uint32_t  length;
-};
-
 static struct plugins_hdl *plugins = NULL;
 static dds_security_authentication *auth = NULL;
 static dds_security_access_control *access_control = NULL;
@@ -274,11 +279,11 @@ get_certificate_expiry(
     /*_In_*/ X509 *cert)
 {
     dds_time_t expiry = DDS_TIME_INVALID;
-    ASN1_TIME *ans1;
+    const ASN1_TIME *ans1;
 
     assert(cert);
 
-    ans1 = X509_get_notAfter(cert);
+    ans1 = X509_get0_notAfter(cert);
     if (ans1 != NULL) {
         int days;
         int seconds;
@@ -287,11 +292,13 @@ get_certificate_expiry(
             dds_duration_t delta = DDS_SECS(((dds_duration_t)seconds + ((dds_duration_t)days * secs_per_day)));
             expiry = dds_time() + delta;
             {
-                BIO *b;
-                b = BIO_new_fp(stdout, BIO_NOCLOSE);
+                BIO *b = BIO_new(BIO_s_mem());
                 BIO_printf(b, "[asn1time] ");
                 ASN1_TIME_print(b, ans1);
                 BIO_printf(b, "\n");
+                BUF_MEM *bptr;
+                BIO_get_mem_ptr(b, &bptr);
+                fwrite(bptr->data, 1, bptr->length, stdout);
                 BIO_free(b);
             }
         }
@@ -449,12 +456,12 @@ static DDS_Security_boolean create_certificate_from_csr(const char* csr, long va
     /* ---------------------------------------------------------- *
      * Set X509V3 start date (now) and expiration date (+365 days)*
      * -----------------------------------------------------------*/
-    if (!(X509_gmtime_adj(X509_get_notBefore(newcert), -10))) {
+    if (!(X509_gmtime_adj(X509_getm_notBefore(newcert), -10))) {
         BIO_printf(outbio, "Error setting start time\n");
         return false;
     }
 
-    if (!(X509_gmtime_adj(X509_get_notAfter(newcert), valid_secs))) {
+    if (!(X509_gmtime_adj(X509_getm_notAfter(newcert), valid_secs))) {
         BIO_printf(outbio, "Error setting expiration time\n");
         return false;
     }
@@ -677,7 +684,7 @@ validate_local_identity_and_permissions( uint32_t identity_expiry_duration, dds_
     DDS_Security_ValidationResult_t result;
     DDS_Security_DomainId domain_id = 0;
     DDS_Security_Qos participant_qos;
-    DDS_Security_SecurityException exception = {NULL, 0, 0};
+    DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
     DDS_Security_GuidPrefix_t prefix = {0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xbb};
     DDS_Security_EntityId_t entityId = {{0xb0,0xb1,0xb2},0x1};
     DDS_Security_GUID_t local_participant_guid;
@@ -759,7 +766,7 @@ validate_local_identity_and_permissions( uint32_t identity_expiry_duration, dds_
 static void
 clear_local_identity_and_permissions(void)
 {
-    DDS_Security_SecurityException exception = {NULL, 0, 0};
+    DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
     DDS_Security_boolean success;
 
     if (local_permissions_handle != DDS_SECURITY_HANDLE_NIL) {
@@ -819,264 +826,11 @@ find_binary_property(
     return result;
 }
 
-
-static void
-octet_seq_init(
-    struct octet_seq *seq,
-    unsigned char *data,
-    uint32_t size)
-{
-    seq->data = ddsrt_malloc(size);
-    memcpy(seq->data, data, size);
-    seq->length = size;
-}
-
-static void
-octet_seq_deinit(
-    struct octet_seq *seq)
-{
-    ddsrt_free(seq->data);
-}
-static char *
-get_openssl_error_message_for_test(
-        void)
-{
-    BIO *bio = BIO_new(BIO_s_mem());
-    char *msg;
-    char *buf = NULL;
-    size_t len;
-
-    if (bio) {
-        ERR_print_errors(bio);
-        len = (uint32_t)BIO_get_mem_data (bio, &buf);
-        msg = ddsrt_malloc(len + 1);
-        memset(msg, 0, len+1);
-        memcpy(msg, buf, len);
-        BIO_free(bio);
-    } else {
-        msg = ddsrt_strdup("BIO_new failed");
-    }
-
-    return msg;
-}
-
-
-static const BIGNUM *
-dh_get_public_key(
-    /*_In_ */DH *dhkey)
-{
-#ifdef AUTH_INCLUDE_DH_ACCESSORS
-    const BIGNUM *pubkey, *privkey;
-    DH_get0_key(dhkey, &pubkey, &privkey);
-    return pubkey;
-#else
-    return dhkey->pub_key;
-#endif
-}
-
-
-
-/* DH Helper Functions */
-
-static int
-create_dh_key_modp_2048(
-    EVP_PKEY **pkey)
-{
-    int r = 0;
-    EVP_PKEY *params = NULL;
-    EVP_PKEY_CTX *kctx = NULL;
-    DH *dh = NULL;
-
-    *pkey = NULL;
-
-    if ((params = EVP_PKEY_new()) == NULL) {
-        char *msg = get_openssl_error_message_for_test();
-        printf("Failed to allocate EVP_PKEY: %s", msg);
-        ddsrt_free(msg);
-        r = -1;
-    } else if ((dh = DH_get_2048_256()) == NULL) {
-        char *msg = get_openssl_error_message_for_test();
-        printf("Failed to allocate DH parameter: %s", msg);
-        ddsrt_free(msg);
-        r = -1;
-    } else if (EVP_PKEY_set1_DH(params, dh) <= 0) {
-        char *msg = get_openssl_error_message_for_test();
-        printf("Failed to set DH parameter to MODP_2048_256: %s", msg);
-        ddsrt_free(msg);
-        r = -1;
-    } else if ((kctx = EVP_PKEY_CTX_new(params, NULL)) == NULL) {
-        char *msg = get_openssl_error_message_for_test();
-        printf("Failed to allocate KEY context %s", msg);
-        ddsrt_free(msg);
-        r = -1;
-    } else if (EVP_PKEY_keygen_init(kctx) <= 0) {
-        char *msg = get_openssl_error_message_for_test();
-        printf("Failed to initialize KEY context: %s", msg);
-        ddsrt_free(msg);
-        r = -1;
-    } else if (EVP_PKEY_keygen(kctx, pkey) <= 0) {
-        char *msg = get_openssl_error_message_for_test();
-        printf("Failed to generate :MODP_2048_256 keys %s", msg);
-        ddsrt_free(msg);
-        r = -1;
-    }
-
-    if (params) EVP_PKEY_free(params);
-    if (kctx) EVP_PKEY_CTX_free(kctx);
-    if (dh) DH_free(dh);
-
-    return r;
-}
-
-static int
-get_dh_public_key_modp_2048(
-    EVP_PKEY *pkey,
-    struct octet_seq *pubkey)
-{
-    int r = 0;
-    DH *dhkey;
-    unsigned char *buffer = NULL;
-    uint32_t size;
-    ASN1_INTEGER *asn1int;
-
-    dhkey = EVP_PKEY_get1_DH(pkey);
-    if (!dhkey) {
-        char *msg = get_openssl_error_message_for_test();
-        printf("Failed to get DH key from PKEY: %s", msg);
-        ddsrt_free(msg);
-        r = -1;
-        goto fail_get_dhkey;
-    }
-
-    asn1int = BN_to_ASN1_INTEGER( dh_get_public_key(dhkey) , NULL);
-    if (!asn1int) {
-        char *msg = get_openssl_error_message_for_test();
-        printf("Failed to convert DH key to ASN1 integer: %s", msg);
-        ddsrt_free(msg);
-        r = -1;
-        goto fail_get_pubkey;
-    }
-
-    size = (uint32_t)i2d_ASN1_INTEGER(asn1int, &buffer);
-    octet_seq_init(pubkey, buffer, size);
-
-    ASN1_INTEGER_free(asn1int);
-    OPENSSL_free(buffer);
-
-fail_get_pubkey:
-    DH_free(dhkey);
-fail_get_dhkey:
-    return r;
-}
-
-static int
-create_dh_key_ecdh(
-    EVP_PKEY **pkey)
-{
-    int r = 0;
-    EVP_PKEY *params = NULL;
-    EVP_PKEY_CTX *pctx = NULL;
-    EVP_PKEY_CTX *kctx = NULL;
-
-    *pkey = NULL;
-
-    if ((pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, NULL)) == NULL) {
-        char *msg = get_openssl_error_message_for_test();
-        printf("Failed to allocate DH parameter context: %s", msg);
-        ddsrt_free(msg);
-        r = -1;
-    } else if (EVP_PKEY_paramgen_init(pctx) <= 0) {
-        char *msg = get_openssl_error_message_for_test();
-        printf("Failed to initialize DH generation context: %s", msg);
-        ddsrt_free(msg);
-        r = -1;
-    } else if (EVP_PKEY_CTX_set_ec_paramgen_curve_nid(pctx, NID_X9_62_prime256v1) <= 0) {
-        char *msg = get_openssl_error_message_for_test();
-        printf("Failed to set DH generation parameter generation method: %s", msg);
-        ddsrt_free(msg);
-        r = -1;
-    } else if (EVP_PKEY_paramgen(pctx, &params) <= 0) {
-        char *msg = get_openssl_error_message_for_test();
-        printf("Failed to generate DH parameters: %s", msg);
-        ddsrt_free(msg);
-        r = -1;
-    } else if ((kctx = EVP_PKEY_CTX_new(params, NULL)) == NULL) {
-        char *msg = get_openssl_error_message_for_test();
-        printf("Failed to allocate KEY context %s", msg);
-        ddsrt_free(msg);
-        r = -1;
-    } else if (EVP_PKEY_keygen_init(kctx) <= 0) {
-        char *msg = get_openssl_error_message_for_test();
-        printf("Failed to initialize KEY context: %s", msg);
-        ddsrt_free(msg);
-        r = -1;
-    } else if (EVP_PKEY_keygen(kctx, pkey) <= 0) {
-        char *msg = get_openssl_error_message_for_test();
-        printf("Failed to generate :MODP_2048_256 keys %s", msg);
-        ddsrt_free(msg);
-        r = -1;
-    }
-
-    if (kctx) EVP_PKEY_CTX_free(kctx);
-    if (params) EVP_PKEY_free(params);
-    if (pctx) EVP_PKEY_CTX_free(pctx);
-
-    return r;
-}
-
-static int
-get_dh_public_key_ecdh(
-    EVP_PKEY *pkey,
-    struct octet_seq *pubkey)
-{
-    int r = 0;
-    EC_KEY *eckey = NULL;
-    const EC_GROUP *group = NULL;
-    const EC_POINT *point = NULL;
-    size_t sz;
-
-    if (!(eckey = EVP_PKEY_get1_EC_KEY(pkey))) {
-        char *msg = get_openssl_error_message_for_test();
-        printf("Failed to get EC key from PKEY: %s", msg);
-        ddsrt_free(msg);
-        r = -1;
-    } else if (!(point = EC_KEY_get0_public_key(eckey))) {
-        char *msg = get_openssl_error_message_for_test();
-        printf("Failed to get public key from ECKEY: %s", msg);
-        ddsrt_free(msg);
-        r = -1;
-    } else if (!(group = EC_KEY_get0_group(eckey))) {
-        char *msg = get_openssl_error_message_for_test();
-        printf("Failed to get group from ECKEY: %s", msg);
-        ddsrt_free(msg);
-        r = -1;
-    } else if ((sz = EC_POINT_point2oct(group, point, POINT_CONVERSION_COMPRESSED, NULL, 0, NULL)) != 0) {
-        pubkey->data = ddsrt_malloc(sz);
-        pubkey->length = (uint32_t)EC_POINT_point2oct(group, point, POINT_CONVERSION_COMPRESSED, pubkey->data, sz, NULL);
-        if (pubkey->length == 0) {
-            char *msg = get_openssl_error_message_for_test();
-            printf("Failed to serialize public EC key: %s", msg);
-            ddsrt_free(msg);
-            octet_seq_deinit(pubkey);
-            r = -1;
-        }
-    } else {
-        char *msg = get_openssl_error_message_for_test();
-        printf("Failed to serialize public EC key: %s", msg);
-        ddsrt_free(msg);
-        r = -1;
-    }
-
-    if (eckey) EC_KEY_free(eckey);
-
-    return r;
-}
-
 CU_Init(ddssec_builtin_listeners_auth)
 {
     int res = 0;
     dds_openssl_init ();
-    thread_states_init();
+    ddsi_thread_states_init();
 
     plugins = load_plugins(&access_control   /* Access Control */,
                            &auth  /* Authentication */,
@@ -1166,76 +920,6 @@ set_binary_property_string(
     set_binary_property_value(bp, name, (const unsigned char *)data, length);
 }
 
-
-static DDS_Security_ValidationResult_t
-create_asymmetrical_signature_for_test(
-     EVP_PKEY *pkey,
-     void *data,
-     size_t dataLen,
-     unsigned char **signature,
-     size_t *signatureLen,
-     DDS_Security_SecurityException *ex)
-{
-    DDS_Security_ValidationResult_t result = DDS_SECURITY_VALIDATION_OK;
-    EVP_MD_CTX *mdctx = NULL;
-    EVP_PKEY_CTX *kctx = NULL;
-
-    if (!(mdctx = EVP_MD_CTX_create())) {
-        char *msg = get_openssl_error_message_for_test();
-        result = DDS_SECURITY_VALIDATION_FAILED;
-        DDS_Security_Exception_set(ex, "Authentication", DDS_SECURITY_ERR_UNDEFINED_CODE, (int)result, "Failed to create signing context: %s", msg);
-        ddsrt_free(msg);
-        goto err_create_ctx;
-    }
-
-    if (EVP_DigestSignInit(mdctx, &kctx, EVP_sha256(), NULL, pkey) != 1) {
-        char *msg = get_openssl_error_message_for_test();
-        result = DDS_SECURITY_VALIDATION_FAILED;
-        DDS_Security_Exception_set(ex, "Authentication", DDS_SECURITY_ERR_UNDEFINED_CODE, (int)result, "Failed to initialize signing context: %s", msg);
-        ddsrt_free(msg);
-        goto err_sign;
-    }
-
-    if (EVP_PKEY_CTX_set_rsa_padding(kctx, RSA_PKCS1_PSS_PADDING) < 1) {
-        char *msg = get_openssl_error_message_for_test();
-        result = DDS_SECURITY_VALIDATION_FAILED;
-        DDS_Security_Exception_set(ex, "Authentication", DDS_SECURITY_ERR_UNDEFINED_CODE, (int)result, "Failed to initialize signing context: %s", msg);
-        ddsrt_free(msg);
-        goto err_sign;
-    }
-
-    if (EVP_DigestSignUpdate(mdctx, data, dataLen) != 1) {
-        char *msg = get_openssl_error_message_for_test();
-        result = DDS_SECURITY_VALIDATION_FAILED;
-        DDS_Security_Exception_set(ex, "Authentication", DDS_SECURITY_ERR_UNDEFINED_CODE, (int)result, "Failed to update signing context: %s", msg);
-        ddsrt_free(msg);
-        goto err_sign;
-    }
-
-    if (EVP_DigestSignFinal(mdctx, NULL, signatureLen) != 1) {
-        char *msg = get_openssl_error_message_for_test();
-        result = DDS_SECURITY_VALIDATION_FAILED;
-        DDS_Security_Exception_set(ex, "Authentication", DDS_SECURITY_ERR_UNDEFINED_CODE, (int)result, "Failed to finalize signing context: %s", msg);
-        ddsrt_free(msg);
-        goto err_sign;
-    }
-
-    *signature = ddsrt_malloc(*signatureLen);
-    if (EVP_DigestSignFinal(mdctx, *signature, signatureLen) != 1) {
-        char *msg = get_openssl_error_message_for_test();
-        result = DDS_SECURITY_VALIDATION_FAILED;
-        DDS_Security_Exception_set(ex, "Authentication", DDS_SECURITY_ERR_UNDEFINED_CODE, (int)result, "Failed to finalize signing context: %s", msg);
-        ddsrt_free(msg);
-        ddsrt_free(*signature);
-    }
-
-err_sign:
-    EVP_MD_CTX_destroy(mdctx);
-err_create_ctx:
-    return result;
-}
-
-
 static X509 *
 load_certificate(
    const char *data)
@@ -1295,42 +979,12 @@ get_adjusted_participant_guid(
     return result;
 }
 
-static DDS_Security_ValidationResult_t
-create_signature_for_test(
-    EVP_PKEY *pkey,
-    const DDS_Security_BinaryProperty_t **binary_properties,
-    const uint32_t binary_properties_length,
-    unsigned char **signature,
-    size_t *signatureLen,
-    DDS_Security_SecurityException *ex)
-{
-    DDS_Security_ValidationResult_t result;
-    DDS_Security_Serializer serializer;
-    unsigned char *buffer;
-    size_t size;
-
-    serializer = DDS_Security_Serializer_new(4096, 4096);
-
-    DDS_Security_Serialize_BinaryPropertyArray(serializer,binary_properties, binary_properties_length);
-    DDS_Security_Serializer_buffer(serializer, &buffer, &size);
-
-    result = create_asymmetrical_signature_for_test(pkey, buffer, size, signature, signatureLen, ex);
-
-    ddsrt_free(buffer);
-    DDS_Security_Serializer_free(serializer);
-
-    return result;
-}
-
-
 static void
 deinitialize_identity_token(
     DDS_Security_IdentityToken *token)
 {
     DDS_Security_DataHolder_deinit(token);
 }
-
-
 
 static void
 fill_auth_request_token(
@@ -1368,7 +1022,7 @@ validate_remote_identity (const char *remote_id_certificate)
     static DDS_Security_AuthRequestMessageToken local_auth_request_token = DDS_SECURITY_TOKEN_INIT;
     DDS_Security_GUID_t guid1;
     DDS_Security_GUID_t guid2;
-    DDS_Security_SecurityException exception = {NULL, 0, 0};
+    DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
     DDS_Security_GuidPrefix_t prefix1 = {0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab};
     DDS_Security_GuidPrefix_t prefix2 = {0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xcb};
     DDS_Security_EntityId_t entityId = {{0xb0,0xb1,0xb2},0x1};
@@ -1481,7 +1135,7 @@ validate_remote_identity (const char *remote_id_certificate)
 static void
 release_remote_identities(void)
 {
-    DDS_Security_SecurityException exception = {NULL, 0, 0};
+    DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
     DDS_Security_boolean success;
 
     if (remote_identity_handle != DDS_SECURITY_HANDLE_NIL) {
@@ -1539,7 +1193,7 @@ fill_handshake_message_token(
     DDS_Security_BinaryProperty_t *challenge1;
     DDS_Security_BinaryProperty_t *challenge2;
     DDS_Security_BinaryProperty_t *signature;
-    DDS_Security_SecurityException exception = {NULL, 0, 0};
+    DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
     unsigned idx;
     unsigned char *serialized_local_participant_data;
     size_t serialized_local_participant_data_size;
@@ -1676,7 +1330,7 @@ fill_handshake_message_token(
            set_binary_property_string(c_kagree_algo, DDS_AUTHTOKEN_PROP_C_KAGREE_ALGO "x", "rubbish");
         }
 
-        CU_ASSERT_FATAL(hash1_from_request != NULL);
+        CU_ASSERT_NEQ_FATAL (hash1_from_request, NULL);
 
         set_binary_property_value(hash_c1, DDS_AUTHTOKEN_PROP_HASH_C1, hash1_from_request->value._buffer, hash1_from_request->value._length);
 
@@ -1762,7 +1416,7 @@ fill_handshake_message_token(
             }
             else
             {
-                CU_ASSERT_FATAL (rc == DDS_SECURITY_VALIDATION_OK);
+                CU_ASSERT_EQ_FATAL (rc, DDS_SECURITY_VALIDATION_OK);
                 set_binary_property_value(signature, DDS_AUTHTOKEN_PROP_SIGNATURE, sign, (uint32_t)signlen);
                 ddsrt_free(sign);
             }
@@ -1786,8 +1440,8 @@ fill_handshake_message_token(
         dh2 = &tokens[idx++];
         hash_c2 = &tokens[idx++];
 
-        CU_ASSERT(hash1_from_request != NULL);
-        CU_ASSERT(hash2_from_reply != NULL);
+        CU_ASSERT_NEQ (hash1_from_request, NULL);
+        CU_ASSERT_NEQ (hash2_from_reply, NULL);
 
         set_binary_property_value(hash_c1, DDS_AUTHTOKEN_PROP_HASH_C1, hash1_from_request->value._buffer, hash1_from_request->value._length);
         set_binary_property_value(hash_c2, DDS_AUTHTOKEN_PROP_HASH_C2, hash2_from_reply->value._buffer, hash2_from_reply->value._length);
@@ -1883,7 +1537,7 @@ CU_Test(ddssec_builtin_listeners_auth, local_remote_set_before_validation)
     DDS_Security_PermissionsHandle result;
     DDS_Security_PermissionsToken permissions_token;
     DDS_Security_AuthenticatedPeerCredentialToken credential_token;
-    DDS_Security_SecurityException exception = {NULL, 0, 0};
+    DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
     DDS_Security_long valid;
     int r;
     dds_duration_t time_left =  DDS_MSECS(10000);
@@ -1916,7 +1570,7 @@ CU_Test(ddssec_builtin_listeners_auth, local_remote_set_before_validation)
          * Just take our losses and quit, simulating a success. */
         return;
     }
-    CU_ASSERT_FATAL (valid == DDS_SECURITY_ERR_OK_CODE);
+    CU_ASSERT_EQ_FATAL (valid, DDS_SECURITY_ERR_OK_CODE);
 
     /*Generate remote certificate*/
     create_certificate_from_csr( bob_csr, 4, BOB_IDENTITY_CERT_FILE, &remote_expiry_date );
@@ -1928,17 +1582,14 @@ CU_Test(ddssec_builtin_listeners_auth, local_remote_set_before_validation)
 
 
     /* Check if we actually have validate_remote_permissions function. */
-    CU_ASSERT_FATAL (local_identity_handle != DDS_SECURITY_HANDLE_NIL);
-    CU_ASSERT_FATAL(access_control != NULL);
-    assert(access_control != NULL);
-    CU_ASSERT_FATAL(access_control->validate_remote_permissions != NULL);
-    assert(access_control->validate_remote_permissions != 0);
-    CU_ASSERT_FATAL(access_control->return_permissions_handle != NULL);
-    assert(access_control->return_permissions_handle != 0);
+    CU_ASSERT_NEQ_FATAL (local_identity_handle, DDS_SECURITY_HANDLE_NIL);
+    CU_ASSERT_NEQ_FATAL (access_control, NULL);
+    CU_ASSERT_NEQ_FATAL (access_control->validate_remote_permissions, NULL);
+    CU_ASSERT_NEQ_FATAL (access_control->return_permissions_handle, NULL);
 
     fill_permissions_token(&permissions_token);
     r = fill_peer_credential_token(&credential_token);
-    CU_ASSERT_FATAL (r);
+    CU_ASSERT_NEQ_FATAL (r, 0);
 
 
 
@@ -1964,9 +1615,9 @@ CU_Test(ddssec_builtin_listeners_auth, local_remote_set_before_validation)
 
     hash1_sent_in_request = find_binary_property(&handshake_token_out, DDS_AUTHTOKEN_PROP_HASH_C1);
 
-    CU_ASSERT_FATAL(dh1 != NULL);
-    CU_ASSERT_FATAL(dh1->value._length > 0);
-    CU_ASSERT_FATAL(dh1->value._buffer != NULL);
+    CU_ASSERT_NEQ_FATAL (dh1, NULL);
+    CU_ASSERT_NEQ_FATAL (dh1->value._length > 0, 0);
+    CU_ASSERT_NEQ_FATAL (dh1->value._buffer, NULL);
 
     dh1_pub_key.data = dh1->value._buffer;
     dh1_pub_key.length = dh1->value._length;
@@ -1987,8 +1638,8 @@ CU_Test(ddssec_builtin_listeners_auth, local_remote_set_before_validation)
                         handshake_handle,
                         &exception);
 
-    CU_ASSERT_FATAL(result == DDS_SECURITY_VALIDATION_OK_FINAL_MESSAGE);
-    CU_ASSERT(handshake_handle != DDS_SECURITY_HANDLE_NIL);
+    CU_ASSERT_EQ_FATAL (result, DDS_SECURITY_VALIDATION_OK_FINAL_MESSAGE);
+    CU_ASSERT_NEQ (handshake_handle, DDS_SECURITY_HANDLE_NIL);
 
     result = access_control->validate_remote_permissions(
                 access_control,
@@ -2002,7 +1653,7 @@ CU_Test(ddssec_builtin_listeners_auth, local_remote_set_before_validation)
     if (result == 0) {
         printf("validate_remote_permissions_failed: %s\n", exception.message ? exception.message : "Error message missing");
         //TODO: Clean-up before failing
-        CU_ASSERT_FATAL (exception.code == DDS_SECURITY_ERR_VALIDITY_PERIOD_EXPIRED_CODE);
+        CU_ASSERT_EQ_FATAL (exception.code, DDS_SECURITY_ERR_VALIDITY_PERIOD_EXPIRED_CODE);
 //        goto end;
 
     }
@@ -2048,7 +1699,7 @@ CU_Test(ddssec_builtin_listeners_auth, local_remote_set_before_validation)
     DDS_Security_DataHolder_deinit((DDS_Security_DataHolder *) &credential_token);
 
 
-    CU_ASSERT_TRUE (result == 1);
+    CU_ASSERT_EQ (result, 1);
 
     reset_exception(&exception);
 

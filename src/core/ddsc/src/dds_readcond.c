@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2021 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2021 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <assert.h>
 #include "dds__reader.h"
 #include "dds__readcond.h"
@@ -17,7 +16,7 @@
 #include "dds/ddsi/ddsi_iid.h"
 #include "dds/ddsi/ddsi_entity_index.h"
 #include "dds/ddsi/ddsi_entity.h"
-#include "dds/ddsi/q_thread.h"
+#include "dds/ddsi/ddsi_thread.h"
 
 static void dds_readcond_close (dds_entity *e) ddsrt_nonnull_all;
 
@@ -42,13 +41,18 @@ const struct dds_entity_deriver dds_entity_deriver_readcondition = {
   .invoke_cbs_for_pending_events = dds_entity_deriver_dummy_invoke_cbs_for_pending_events
 };
 
-dds_readcond *dds_create_readcond (dds_reader *rd, dds_entity_kind_t kind, uint32_t mask, dds_querycondition_filter_fn filter)
+dds_return_t dds_create_readcond_impl (dds_readcond **rdcond_out, dds_reader *rd, dds_entity_kind_t kind, uint32_t mask, dds_querycondition_filter_fn filter)
 {
-  dds_readcond *cond = dds_alloc (sizeof (*cond));
   assert ((kind == DDS_KIND_COND_READ && filter == 0) || (kind == DDS_KIND_COND_QUERY && filter != 0));
-  (void) dds_entity_init (&cond->m_entity, &rd->m_entity, kind, false, true, NULL, NULL, 0);
+  dds_readcond *cond = dds_alloc (sizeof (*cond));
+  dds_return_t ret;
+  ret = dds_entity_init (&cond->m_entity, &rd->m_entity, kind, false, true, NULL, NULL, 0);
+  if (ret < 0)
+  {
+    dds_free (cond);
+    return ret;
+  }
   cond->m_entity.m_iid = ddsi_iid_gen ();
-  dds_entity_register_child (&rd->m_entity, &cond->m_entity);
   cond->m_sample_states = mask & DDS_ANY_SAMPLE_STATE;
   cond->m_view_states = mask & DDS_ANY_VIEW_STATE;
   cond->m_instance_states = mask & DDS_ANY_INSTANCE_STATE;
@@ -59,36 +63,43 @@ dds_readcond *dds_create_readcond (dds_reader *rd, dds_entity_kind_t kind, uint3
   }
   if (!dds_rhc_add_readcondition (rd->m_rhc, cond))
   {
-    /* FIXME: current entity management code can't deal with an error late in the creation of the
-       entity because it doesn't allow deleting it again ... */
-    abort();
+    dds_entity_final_deinit_before_free (&cond->m_entity);
+    dds_handle_delete (&cond->m_entity.m_hdllink);
+    dds_free (cond);
+    return DDS_RETCODE_OUT_OF_RESOURCES;
   }
-  return cond;
+  dds_entity_register_child (&rd->m_entity, &cond->m_entity);
+  *rdcond_out = cond;
+  return DDS_RETCODE_OK;
 }
 
 dds_entity_t dds_create_readcondition (dds_entity_t reader, uint32_t mask)
 {
   dds_reader *rd;
+  dds_readcond *cond;
   dds_return_t rc;
+
   if ((rc = dds_reader_lock (reader, &rd)) != DDS_RETCODE_OK)
     return rc;
+  else if ((rc = dds_create_readcond_impl (&cond, rd, DDS_KIND_COND_READ, mask, NULL)) != DDS_RETCODE_OK)
+  {
+    dds_reader_unlock (rd);
+    return rc;
+  }
   else
   {
-    dds_entity_t hdl;
-    dds_readcond *cond = dds_create_readcond(rd, DDS_KIND_COND_READ, mask, 0);
-    assert (cond);
-    hdl = cond->m_entity.m_hdllink.hdl;
+    dds_entity_t const hdl = cond->m_entity.m_hdllink.hdl;
     dds_entity_init_complete (&cond->m_entity);
     dds_reader_unlock (rd);
     return hdl;
   }
 }
 
-dds_entity_t dds_get_datareader (dds_entity_t condition)
+dds_entity_t dds_get_datareader (dds_entity_t entity)
 {
   struct dds_entity *e;
   dds_return_t rc;
-  if ((rc = dds_entity_pin (condition, &e)) != DDS_RETCODE_OK)
+  if ((rc = dds_entity_pin (entity, &e)) != DDS_RETCODE_OK)
     return rc;
   else
   {

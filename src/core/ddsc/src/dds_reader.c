@@ -1,52 +1,46 @@
-/*
- * Copyright(c) 2006 to 2022 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2022 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <assert.h>
 #include <string.h>
 #include "dds/dds.h"
 #include "dds/version.h"
 #include "dds/ddsrt/static_assert.h"
+#include "dds/ddsrt/io.h"
 #include "dds/ddsrt/heap.h"
+#include "dds/ddsi/ddsi_entity.h"
+#include "dds/ddsi/ddsi_endpoint.h"
+#include "dds/ddsi/ddsi_thread.h"
+#include "dds/ddsi/ddsi_domaingv.h"
+#include "dds/ddsi/ddsi_sertype.h"
+#include "dds/ddsi/ddsi_serdata.h"
+#include "dds/ddsi/ddsi_entity_index.h"
+#include "dds/ddsi/ddsi_security_omg.h"
+#include "dds/ddsi/ddsi_statistics.h"
+#include "dds/ddsi/ddsi_endpoint_match.h"
+#include "dds/ddsi/ddsi_tkmap.h"
+#include "dds/ddsc/dds_rhc.h"
+#include "dds/ddsc/dds_internal_api.h"
 #include "dds__participant.h"
 #include "dds__subscriber.h"
 #include "dds__reader.h"
 #include "dds__listener.h"
 #include "dds__init.h"
-#include "dds/ddsc/dds_rhc.h"
 #include "dds__rhc_default.h"
 #include "dds__topic.h"
 #include "dds__get_status.h"
 #include "dds__qos.h"
-#include "dds/ddsi/ddsi_entity.h"
-#include "dds/ddsi/ddsi_endpoint.h"
-#include "dds/ddsi/q_thread.h"
-#include "dds/ddsi/ddsi_domaingv.h"
 #include "dds__builtin.h"
 #include "dds__statistics.h"
-#include "dds__data_allocator.h"
-#include "dds/ddsi/ddsi_sertype.h"
-#include "dds/ddsi/ddsi_entity_index.h"
-#include "dds/ddsi/ddsi_security_omg.h"
-#include "dds/ddsi/ddsi_statistics.h"
-
-#ifdef DDS_HAS_SHM
-#include "dds/ddsi/ddsi_shm_transport.h"
-#include "dds/ddsi/ddsi_tkmap.h"
-#include "dds/ddsi/q_receive.h"
-#include "dds/ddsrt/md5.h"
-#include "dds/ddsrt/sync.h"
-#include "dds/ddsrt/threads.h"
-#include "iceoryx_binding_c/wait_set.h"
-#include "shm__monitor.h"
-#endif
+#include "dds__psmx.h"
+#include "dds__guid.h"
 
 DECL_ENTITY_LOCK_UNLOCK (dds_reader)
 
@@ -66,18 +60,9 @@ static void dds_reader_close (dds_entity *e)
   struct dds_reader * const rd = (struct dds_reader *) e;
   assert (rd->m_rd != NULL);
 
-#ifdef DDS_HAS_SHM
-  if (rd->m_iox_sub)
-  {
-  //will wait for any runing callback using the iceoryx subscriber of this reader
-    shm_monitor_detach_reader(&rd->m_entity.m_domain->m_shm_monitor, rd);
-  //from now on no callbacks on this reader will run
-  }
-#endif
-
-  thread_state_awake (lookup_thread_state (), &e->m_domain->gv);
+  ddsi_thread_state_awake (ddsi_lookup_thread_state (), &e->m_domain->gv);
   (void) ddsi_delete_reader (&e->m_domain->gv, &e->m_guid);
-  thread_state_asleep (lookup_thread_state ());
+  ddsi_thread_state_asleep (ddsi_lookup_thread_state ());
 
   ddsrt_mutex_lock (&e->m_mutex);
   while (rd->m_rd != NULL)
@@ -85,43 +70,28 @@ static void dds_reader_close (dds_entity *e)
   ddsrt_mutex_unlock (&e->m_mutex);
 }
 
-static dds_return_t dds_reader_delete (dds_entity *e) ddsrt_nonnull_all;
-
+ddsrt_nonnull_all
 static dds_return_t dds_reader_delete (dds_entity *e)
 {
+  dds_return_t ret = DDS_RETCODE_OK;
   dds_reader * const rd = (dds_reader *) e;
 
-  if (rd->m_loan)
-  {
-    void **ptrs = ddsrt_malloc (rd->m_loan_size * sizeof (*ptrs));
-    ddsi_sertype_realloc_samples (ptrs, rd->m_topic->m_stype, rd->m_loan, rd->m_loan_size, rd->m_loan_size);
-    ddsi_sertype_free_samples (rd->m_topic->m_stype, ptrs, rd->m_loan_size, DDS_FREE_ALL);
-    ddsrt_free (ptrs);
-  }
-
-  thread_state_awake (lookup_thread_state (), &e->m_domain->gv);
+  ddsi_thread_state_awake (ddsi_lookup_thread_state (), &e->m_domain->gv);
   dds_rhc_free (rd->m_rhc);
-  thread_state_asleep (lookup_thread_state ());
+  ddsi_thread_state_asleep (ddsi_lookup_thread_state ());
 
-#ifdef DDS_HAS_SHM
-  if (rd->m_iox_sub)
-  {
-    // deletion must happen at the very end after the reader cache is not used anymore
-    // since the mutex is needed and the data needs to be released using the iceoryx subscriber
-    DDS_CLOG (DDS_LC_SHM, &e->m_domain->gv.logconfig, "Release iceoryx's subscriber\n");
-    iox_sub_deinit(rd->m_iox_sub);
-    iox_sub_context_fini(&rd->m_iox_sub_context);
-  }
-#endif
+  dds_loan_pool_free (rd->m_heap_loan_cache);
+  dds_loan_pool_free (rd->m_loans);
+  dds_endpoint_remove_psmx_endpoints (&rd->m_endpoint);
 
   dds_entity_drop_ref (&rd->m_topic->m_entity);
-  return DDS_RETCODE_OK;
+  return ret;
 }
 
 static dds_return_t validate_reader_qos (const dds_qos_t *rqos)
 {
 #ifndef DDS_HAS_DEADLINE_MISSED
-  if (rqos != NULL && (rqos->present & QP_DEADLINE) && rqos->deadline.deadline != DDS_INFINITY)
+  if (rqos != NULL && (rqos->present & DDSI_QP_DEADLINE) && rqos->deadline.deadline != DDS_INFINITY)
     return DDS_RETCODE_BAD_PARAMETER;
 #else
   DDSRT_UNUSED_ARG (rqos);
@@ -138,10 +108,10 @@ static dds_return_t dds_reader_qos_set (dds_entity *e, const dds_qos_t *qos, boo
   if (enabled)
   {
     struct ddsi_reader *rd;
-    thread_state_awake (lookup_thread_state (), &e->m_domain->gv);
-    if ((rd = entidx_lookup_reader_guid (e->m_domain->gv.entity_index, &e->m_guid)) != NULL)
+    ddsi_thread_state_awake (ddsi_lookup_thread_state (), &e->m_domain->gv);
+    if ((rd = ddsi_entidx_lookup_reader_guid (e->m_domain->gv.entity_index, &e->m_guid)) != NULL)
       ddsi_update_reader_qos (rd, qos);
-    thread_state_asleep (lookup_thread_state ());
+    ddsi_thread_state_asleep (ddsi_lookup_thread_state ());
   }
   return DDS_RETCODE_OK;
 }
@@ -205,14 +175,14 @@ static void data_avail_cb_trigger_waitsets (dds_entity *rd, uint32_t signal)
     ddsrt_mutex_lock (&sub->m_observers_lock);
     const uint32_t sm = ddsrt_atomic_ld32 (&sub->m_status.m_status_and_mask);
     if ((sm & (sm >> SAM_ENABLED_SHIFT)) & DDS_DATA_ON_READERS_STATUS)
-      dds_entity_observers_signal (sub, DDS_DATA_ON_READERS_STATUS);
+      dds_entity_observers_signal (sub);
     ddsrt_mutex_unlock (&sub->m_observers_lock);
   }
   if (signal & DDS_DATA_AVAILABLE_STATUS)
   {
     const uint32_t sm = ddsrt_atomic_ld32 (&rd->m_status.m_status_and_mask);
     if ((sm & (sm >> SAM_ENABLED_SHIFT)) & DDS_DATA_AVAILABLE_STATUS)
-      dds_entity_observers_signal (rd, DDS_DATA_AVAILABLE_STATUS);
+      dds_entity_observers_signal (rd);
   }
 }
 
@@ -254,7 +224,7 @@ void dds_reader_data_available_cb (struct dds_reader *rd)
 
   ddsrt_mutex_lock (&rd->m_entity.m_observers_lock);
   const uint32_t status_and_mask = ddsrt_atomic_ld32 (&rd->m_entity.m_status.m_status_and_mask);
-  if (lst->on_data_on_readers == 0 && lst->on_data_available == 0)
+  if (lst->on_data_on_readers == NULL && lst->on_data_available == NULL)
     signal = data_avail_cb_set_status (&rd->m_entity, status_and_mask);
   else
   {
@@ -267,33 +237,35 @@ void dds_reader_data_available_cb (struct dds_reader *rd)
   ddsrt_mutex_unlock (&rd->m_entity.m_observers_lock);
 }
 
-static void update_requested_deadline_missed (struct dds_requested_deadline_missed_status * __restrict st, const ddsi_status_cb_data_t *data)
+static void update_requested_deadline_missed (struct dds_requested_deadline_missed_status *st, const ddsi_status_cb_data_t *data)
 {
   st->last_instance_handle = data->handle;
-  st->total_count++;
+  uint64_t tmp = (uint64_t)data->extra + (uint64_t)st->total_count;
+  st->total_count = tmp > UINT32_MAX ? UINT32_MAX : (uint32_t)tmp;
   // always incrementing st->total_count_change, then copying into *lst is
   // a bit more than minimal work, but this guarantees the correct value
   // also when enabling a listeners after some events have occurred
   //
   // (same line of reasoning for all of them)
-  st->total_count_change++;
+  int64_t tmp2 = (int64_t)data->extra + (int64_t)st->total_count_change;
+  st->total_count_change = tmp2 > INT32_MAX ? INT32_MAX : tmp2 < INT32_MIN ? INT32_MIN : (int32_t)tmp2;
 }
 
-static void update_requested_incompatible_qos (struct dds_requested_incompatible_qos_status * __restrict st, const ddsi_status_cb_data_t *data)
+static void update_requested_incompatible_qos (struct dds_requested_incompatible_qos_status *st, const ddsi_status_cb_data_t *data)
 {
   st->last_policy_id = data->extra;
   st->total_count++;
   st->total_count_change++;
 }
 
-static void update_sample_lost (struct dds_sample_lost_status * __restrict st, const ddsi_status_cb_data_t *data)
+static void update_sample_lost (struct dds_sample_lost_status *st, const ddsi_status_cb_data_t *data)
 {
   (void) data;
   st->total_count++;
   st->total_count_change++;
 }
 
-static void update_sample_rejected (struct dds_sample_rejected_status * __restrict st, const ddsi_status_cb_data_t *data)
+static void update_sample_rejected (struct dds_sample_rejected_status *st, const ddsi_status_cb_data_t *data)
 {
   st->last_reason = data->extra;
   st->last_instance_handle = data->handle;
@@ -301,7 +273,7 @@ static void update_sample_rejected (struct dds_sample_rejected_status * __restri
   st->total_count_change++;
 }
 
-static void update_liveliness_changed (struct dds_liveliness_changed_status * __restrict st, const ddsi_status_cb_data_t *data)
+static void update_liveliness_changed (struct dds_liveliness_changed_status *st, const ddsi_status_cb_data_t *data)
 {
   DDSRT_STATIC_ASSERT ((uint32_t) DDSI_LIVELINESS_CHANGED_ADD_ALIVE == 0 &&
                        DDSI_LIVELINESS_CHANGED_ADD_ALIVE < DDSI_LIVELINESS_CHANGED_ADD_NOT_ALIVE &&
@@ -345,7 +317,7 @@ static void update_liveliness_changed (struct dds_liveliness_changed_status * __
   }
 }
 
-static void update_subscription_matched (struct dds_subscription_matched_status * __restrict st, const ddsi_status_cb_data_t *data)
+static void update_subscription_matched (struct dds_subscription_matched_status *st, const ddsi_status_cb_data_t *data)
 {
   st->last_publication_handle = data->handle;
   if (data->add) {
@@ -376,7 +348,7 @@ STATUS_CB_IMPL (reader, sample_lost,                SAMPLE_LOST,                
 STATUS_CB_IMPL (reader, requested_deadline_missed,  REQUESTED_DEADLINE_MISSED,  total_count_change)
 STATUS_CB_IMPL (reader, requested_incompatible_qos, REQUESTED_INCOMPATIBLE_QOS, total_count_change)
 
-void dds_reader_status_cb (void *ventity, const ddsi_status_cb_data_t *data)
+void dds_reader_status_cb (void *ventity, const struct ddsi_status_cb_data *data)
 {
   dds_reader * const rd = ventity;
 
@@ -505,82 +477,8 @@ const struct dds_entity_deriver dds_entity_deriver_reader = {
   .invoke_cbs_for_pending_events = dds_reader_invoke_cbs_for_pending_events
 };
 
-#ifdef DDS_HAS_SHM
-#define DDS_READER_QOS_CHECK_FIELDS (QP_LIVELINESS|QP_DEADLINE|QP_RELIABILITY|QP_DURABILITY|QP_HISTORY)
-static bool dds_reader_support_shm(const struct ddsi_config* cfg, const dds_qos_t *qos, const struct dds_topic *tp)
+static dds_entity_t dds_create_reader_int (dds_entity_t participant_or_subscriber, dds_entity_t topic, dds_guid_t *guid, const dds_qos_t *qos, const dds_listener_t *listener, struct dds_rhc *rhc)
 {
-  if (NULL == cfg ||
-      false == cfg->enable_shm)
-    return false;
-
-  // check necessary condition: fixed size data type OR serializing into shared
-  // memory is available
-  if (!tp->m_stype->fixed_size && (!tp->m_stype->ops->get_serialized_size ||
-                                   !tp->m_stype->ops->serialize_into)) {
-    return false;
-  }
-
-  if(qos->history.kind != DDS_HISTORY_KEEP_LAST) {
-    return false;
-  }
-
-  if(!(qos->durability.kind == DDS_DURABILITY_VOLATILE ||
-    qos->durability.kind == DDS_DURABILITY_TRANSIENT_LOCAL)) {
-    return false;
-  }
-
-  if (qos->ignorelocal.value != DDS_IGNORELOCAL_NONE) {
-    return false;
-  }
-
-  return (DDS_READER_QOS_CHECK_FIELDS ==
-              (qos->present & DDS_READER_QOS_CHECK_FIELDS) &&
-          DDS_LIVELINESS_AUTOMATIC == qos->liveliness.kind &&
-          DDS_INFINITY == qos->deadline.deadline);
-}
-
-static iox_sub_options_t create_iox_sub_options(const dds_qos_t* qos) {
-
-  iox_sub_options_t opts;
-  iox_sub_options_init(&opts);
-
-  const uint32_t max_sub_queue_capacity = iox_cfg_max_subscriber_queue_capacity();
-
-  // NB: We may lose data after history.depth many samples are received (if we
-  // are not taking them fast enough from the iceoryx queue and move them in
-  // the reader history cache), but this is valid behavior for volatile.
-  // It may still lead to undesired behavior as the queues are filled very
-  // fast if data is published as fast as possible.
-  // NB: If the history depth is larger than the queue capacity, we still use
-  // shared memory but limit the queueCapacity accordingly (otherwise iceoryx
-  // emits a warning and limits it itself)
-
-  if ((uint32_t) qos->history.depth <= max_sub_queue_capacity) {
-    opts.queueCapacity = (uint64_t)qos->history.depth;
-  } else {
-    opts.queueCapacity = max_sub_queue_capacity;
-  }
-
-  // with BEST EFFORT DDS requires that no historical
-  // data is received (regardless of durability)
-  if(qos->reliability.kind == DDS_RELIABILITY_BEST_EFFORT ||
-     qos->durability.kind == DDS_DURABILITY_VOLATILE) {
-    opts.historyRequest = 0;
-  } else {
-    // TRANSIENT LOCAL and stronger
-    opts.historyRequest = (uint64_t) qos->history.depth;
-    // if the publisher does not support historicial data
-    // it will not be connected by iceoryx
-    opts.requirePublisherHistorySupport = true;
-  }
-
-  return opts;
-}
-#endif
-
-static dds_entity_t dds_create_reader_int (dds_entity_t participant_or_subscriber, dds_entity_t topic, const dds_qos_t *qos, const dds_listener_t *listener, struct dds_rhc *rhc)
-{
-  dds_qos_t *rqos;
   dds_subscriber *sub = NULL;
   dds_entity_t subscriber;
   dds_topic *tp;
@@ -655,18 +553,21 @@ static dds_entity_t dds_create_reader_int (dds_entity_t participant_or_subscribe
   /* Merge qos from topic and subscriber, dds_copy_qos only fails when it is passed a null
      argument, but that isn't the case here */
   struct ddsi_domaingv *gv = &sub->m_entity.m_domain->gv;
-  rqos = dds_create_qos ();
+  dds_qos_t *rqos = dds_create_qos ();
+  bool own_rqos = true;
   if (qos)
     ddsi_xqos_mergein_missing (rqos, qos, DDS_READER_QOS_MASK);
   if (sub->m_entity.m_qos)
-    ddsi_xqos_mergein_missing (rqos, sub->m_entity.m_qos, ~QP_ENTITY_NAME);
+    ddsi_xqos_mergein_missing (rqos, sub->m_entity.m_qos, ~DDSI_QP_ENTITY_NAME);
   if (tp->m_ktopic->qos)
-    ddsi_xqos_mergein_missing (rqos, tp->m_ktopic->qos, ~QP_ENTITY_NAME);
-  ddsi_xqos_mergein_missing (rqos, &ddsi_default_qos_reader, ~QP_DATA_REPRESENTATION);
+    ddsi_xqos_mergein_missing (rqos, tp->m_ktopic->qos, (DDS_READER_QOS_MASK | DDSI_QP_TOPIC_DATA) & ~DDSI_QP_ENTITY_NAME);
+  ddsi_xqos_mergein_missing (rqos, &ddsi_default_qos_reader, ~DDSI_QP_DATA_REPRESENTATION);
   dds_apply_entity_naming(rqos, sub->m_entity.m_qos, gv);
 
-  if ((rc = dds_ensure_valid_data_representation (rqos, tp->m_stype->allowed_data_representation, false)) != 0)
+  if ((rc = dds_ensure_valid_data_representation (rqos, tp->m_stype->allowed_data_representation, tp->m_stype->data_type_props, DDS_KIND_READER)) != DDS_RETCODE_OK)
     goto err_data_repr;
+  if ((rc = dds_ensure_valid_psmx_instances (rqos, DDS_PSMX_ENDPOINT_TYPE_READER, tp->m_stype, &sub->m_entity.m_domain->psmx_instances)) != DDS_RETCODE_OK)
+    goto err_psmx;
 
   if ((rc = ddsi_xqos_valid (&gv->logconfig, rqos)) < 0 || (rc = validate_reader_qos(rqos)) != DDS_RETCODE_OK)
     goto err_bad_qos;
@@ -680,9 +581,9 @@ static dds_entity_t dds_create_reader_int (dds_entity_t participant_or_subscribe
     goto err_bad_qos;
   }
 
-  thread_state_awake (lookup_thread_state (), gv);
+  ddsi_thread_state_awake (ddsi_lookup_thread_state (), gv);
   const struct ddsi_guid * ppguid = dds_entity_participant_guid (&sub->m_entity);
-  struct ddsi_participant * pp = entidx_lookup_participant_guid (gv->entity_index, ppguid);
+  struct ddsi_participant * pp = ddsi_entidx_lookup_participant_guid (gv->entity_index, ppguid);
 
   /* When deleting a participant, the child handles (that include the subscriber)
      are removed before removing the DDSI participant. So at this point, within
@@ -691,14 +592,14 @@ static dds_entity_t dds_create_reader_int (dds_entity_t participant_or_subscribe
 
 #ifdef DDS_HAS_SECURITY
   /* Check if DDS Security is enabled */
-  if (q_omg_participant_is_secure (pp))
+  if (ddsi_omg_participant_is_secure (pp))
   {
     /* ask to access control security plugin for create reader permissions */
-    if (!q_omg_security_check_create_reader (pp, gv->config.domainId, tp->m_name, rqos))
+    if (!ddsi_omg_security_check_create_reader (pp, gv->config.domainId, tp->m_name, rqos))
     {
       rc = DDS_RETCODE_NOT_ALLOWED_BY_SECURITY;
-      thread_state_asleep(lookup_thread_state());
-      goto err_bad_qos;
+      ddsi_thread_state_asleep(ddsi_lookup_thread_state());
+      goto err_not_allowed;
     }
   }
 #endif
@@ -706,6 +607,10 @@ static dds_entity_t dds_create_reader_int (dds_entity_t participant_or_subscribe
   /* Create reader and associated read cache (if not provided by caller) */
   struct dds_reader * const rd = dds_alloc (sizeof (*rd));
   const dds_entity_t reader = dds_entity_init (&rd->m_entity, &sub->m_entity, DDS_KIND_READER, false, true, rqos, listener, DDS_READER_STATUS_MASK);
+
+  // Ownership of rqos is transferred to reader entity
+  own_rqos = false;
+
   // assume DATA_ON_READERS is materialized in the subscriber:
   // - changes to it won't be propagated to this reader until after it has been added to the subscriber's children
   // - data can arrive once `new_reader` is called, requiring raising DATA_ON_READERS if materialized
@@ -713,76 +618,63 @@ static dds_entity_t dds_create_reader_int (dds_entity_t participant_or_subscribe
   ddsrt_atomic_or32 (&rd->m_entity.m_status.m_status_and_mask, DDS_DATA_ON_READERS_STATUS << SAM_ENABLED_SHIFT);
   rd->m_sample_rejected_status.last_reason = DDS_NOT_REJECTED;
   rd->m_topic = tp;
-  rd->m_wrapped_sertopic = (tp->m_stype->wrapped_sertopic != NULL) ? 1 : 0;
-  rd->m_rhc = rhc ? rhc : dds_rhc_default_new (rd, tp->m_stype);
-  if (dds_rhc_associate (rd->m_rhc, rd, tp->m_stype, rd->m_entity.m_domain->gv.m_tkmap) < 0)
+  rd->m_rhc = rhc ? rhc : dds_rhc_default_new (gv, tp->m_stype, rd->m_entity.m_qos);
+  rc = dds_loan_pool_create (&rd->m_loans, 0);
+  assert (rc == DDS_RETCODE_OK); // FIXME: can be out of resources
+  rc = dds_loan_pool_create (&rd->m_heap_loan_cache, 0);
+  assert (rc == DDS_RETCODE_OK); // FIXME: can be out of resources
+  if (dds_rhc_associate (rd->m_rhc, rd) < 0)
   {
     /* FIXME: see also create_querycond, need to be able to undo entity_init */
     abort ();
   }
   dds_entity_add_ref_locked (&tp->m_entity);
 
+  if ((rc = dds_endpoint_add_psmx_endpoint (&rd->m_endpoint, rqos, &tp->m_ktopic->psmx_topics, DDS_PSMX_ENDPOINT_TYPE_READER)) != DDS_RETCODE_OK)
+  {
+    ddsi_thread_state_asleep (ddsi_lookup_thread_state ());
+    goto err_create_endpoint;
+  }
+
   /* FIXME: listeners can come too soon ... should set mask based on listeners
      then atomically set the listeners, save the mask to a pending set and clear
      it; and then invoke those listeners that are in the pending set */
   dds_entity_init_complete (&rd->m_entity);
 
-#ifdef DDS_HAS_SHM
-  assert(rqos->present & QP_LOCATOR_MASK);
-  if (!dds_reader_support_shm(&gv->config, rqos, tp))
-    rqos->ignore_locator_type |= NN_LOCATOR_KIND_SHEM;
-#endif
+  if (guid)
+    rd->m_entity.m_guid = dds_guid_to_ddsi_guid (*guid);
+  else
+  {
+    rc = ddsi_generate_reader_guid (&rd->m_entity.m_guid, pp, tp->m_stype);
+    if (rc != DDS_RETCODE_OK)
+    {
+      ddsi_thread_state_asleep (ddsi_lookup_thread_state ());
+      goto err_rd_guid;
+    }
+  }
+
+  struct ddsi_psmx_locators_set *vl_set = dds_get_psmx_locators_set (rqos, &rd->m_entity.m_domain->psmx_instances);
 
   /* Reader gets the sertype from the topic, as the serdata functions the reader uses are
      not specific for a data representation (the representation can be retrieved from the cdr header) */
-  rc = ddsi_new_reader (&rd->m_rd, &rd->m_entity.m_guid, NULL, pp, tp->m_name, tp->m_stype, rqos, &rd->m_rhc->common.rhc, dds_reader_status_cb, rd);
-  assert (rc == DDS_RETCODE_OK); /* FIXME: can be out-of-resources at the very least */
-  thread_state_asleep (lookup_thread_state ());
-
-#ifdef DDS_HAS_SHM
-  if (rd->m_rd->has_iceoryx)
+  rc = ddsi_new_reader (&rd->m_rd, &rd->m_entity.m_guid, NULL, pp, tp->m_name, tp->m_stype, rqos, &rd->m_rhc->common.rhc, dds_reader_status_cb, rd, vl_set);
+  if (rc != DDS_RETCODE_OK)
   {
-    DDS_CLOG (DDS_LC_SHM, &rd->m_entity.m_domain->gv.logconfig, "Reader's topic name will be DDS:Cyclone:%s\n", rd->m_topic->m_name);
-
-    iox_sub_context_init(&rd->m_iox_sub_context);
-
-    iox_sub_options_t opts = create_iox_sub_options(rqos);
-
-    // NB: This may fail due to icoeryx being out of internal resources for subsribers.
-    //     In this case terminate is called by iox_sub_init.
-    //     it is currently (iceoryx 2.0 and lower) not possible to change this to
-    //     e.g. return a nullptr and handle the error here.
-    rd->m_iox_sub = iox_sub_init(&(iox_sub_storage_t){0}, gv->config.iceoryx_service, rd->m_topic->m_stype->type_name, rd->m_topic->m_name, &opts);
-
-    // NB: Due to some storage paradigm change of iceoryx structs
-    // we now have a pointer 8 bytes before m_iox_sub
-    // We use this address to store a pointer to the context.
-    iox_sub_context_t **context = iox_sub_context_ptr(rd->m_iox_sub);
-    *context = &rd->m_iox_sub_context;
-
-    rc = shm_monitor_attach_reader(&rd->m_entity.m_domain->m_shm_monitor, rd);
-
-    if (rc != DDS_RETCODE_OK) {
-      // we fail if we cannot attach to the listener (as we would get no data)
-      iox_sub_deinit(rd->m_iox_sub);
-      rd->m_iox_sub = NULL;
-      DDS_CLOG(DDS_LC_WARNING | DDS_LC_SHM,
-               &rd->m_entity.m_domain->gv.logconfig,
-               "Failed to attach iox subscriber to iox listener\n");
-      // FIXME: We need to clean up everything created up to now.
-      //        Currently there is only partial cleanup, we need to extend it.
-      goto err_bad_qos;
-    }
-
-    // those are set once and never changed
-    // they are used to access reader and monitor from the callback when data is received
-    rd->m_iox_sub_context.monitor = &rd->m_entity.m_domain->m_shm_monitor;
-    rd->m_iox_sub_context.parent_reader = rd;
+    /* FIXME: can be out-of-resources at the very least; would leak allocated entity id */
+    abort ();
   }
-#endif
+  dds_psmx_locators_set_free (vl_set);
+  ddsi_thread_state_asleep (ddsi_lookup_thread_state ());
 
   rd->m_entity.m_iid = ddsi_get_entity_instanceid (&rd->m_entity.m_domain->gv, &rd->m_entity.m_guid);
   dds_entity_register_child (&sub->m_entity, &rd->m_entity);
+
+  for (uint32_t i = 0; i < rd->m_endpoint.psmx_endpoints.length; i++)
+  {
+    struct dds_psmx_endpoint_int *psmx_endpoint = rd->m_endpoint.psmx_endpoints.endpoints[i];
+    if (psmx_endpoint->ops.on_data_available && (rc = psmx_endpoint->ops.on_data_available (psmx_endpoint->ext, reader)) != DDS_RETCODE_OK)
+      goto err_psmx_endpoint_setcb;
+  }
 
   // After including the reader amongst the subscriber's children, the subscriber will start
   // propagating whether data_on_readers is materialised or not.  That doesn't cater for the cases
@@ -800,9 +692,18 @@ static dds_entity_t dds_create_reader_int (dds_entity_t participant_or_subscribe
   dds_subscriber_unlock (sub);
   return reader;
 
+err_psmx_endpoint_setcb:
+err_rd_guid:
+  dds_endpoint_remove_psmx_endpoints (&rd->m_endpoint);
+err_create_endpoint:
 err_bad_qos:
+#ifdef DDS_HAS_SECURITY
+err_not_allowed:
+#endif
 err_data_repr:
-  dds_delete_qos (rqos);
+err_psmx:
+  if (own_rqos)
+    dds_delete_qos (rqos);
   dds_topic_allow_set_qos (tp);
 err_pp_mismatch:
   dds_topic_unpin (tp);
@@ -813,77 +714,134 @@ err_pin_topic:
   return rc;
 }
 
-void dds_reader_ddsi2direct (dds_entity_t entity, ddsi2direct_directread_cb_t cb, void *cbarg)
+struct writer_metadata
 {
-  dds_entity *dds_entity;
-  if (dds_entity_pin (entity, &dds_entity) != DDS_RETCODE_OK)
-    return;
-  if (dds_entity_kind (dds_entity) != DDS_KIND_READER)
+  int32_t ownership_strength;
+  bool autodispose_unregistered_instances;
+  dds_duration_t lifespan_duration;
+};
+
+static dds_return_t get_writer_info (struct ddsi_domaingv *gv, const ddsi_guid_t *guid, uint32_t statusinfo, const struct writer_metadata *writer_md, struct ddsi_writer_info *wi)
+{
+  dds_return_t ret = DDS_RETCODE_OK;
+  struct dds_qos *xqos = NULL;
+
+  if (writer_md == NULL)
   {
-    dds_entity_unpin (dds_entity);
-    return;
+    struct ddsi_entity_common *ec = ddsi_entidx_lookup_guid_untyped (gv->entity_index, guid);
+    if (ec == NULL || (ec->kind != DDSI_EK_PROXY_WRITER && ec->kind != DDSI_EK_WRITER))
+    {
+      ret = DDS_RETCODE_NOT_FOUND;
+      goto err;
+    }
+    else if (ec->kind == DDSI_EK_PROXY_WRITER)
+      xqos = ((struct ddsi_proxy_writer *) ec)->c.xqos;
+    else
+      xqos = ((struct ddsi_writer *) ec)->xqos;
+
+    ddsi_make_writer_info (wi, ec, xqos, statusinfo);
+  }
+  else
+  {
+    uint64_t iid = ((uint64_t) ddsrt_toBE4u (guid->prefix.u[2]) << 32llu) + ddsrt_toBE4u (guid->entityid.u);
+    ddsi_make_writer_info_params (wi, guid, writer_md->ownership_strength, writer_md->autodispose_unregistered_instances, iid, statusinfo, writer_md->lifespan_duration);
   }
 
-  dds_reader *dds_rd = (dds_reader *) dds_entity;
+err:
+  return ret;
+}
+
+static dds_return_t dds_reader_store_loaned_sample_impl (dds_entity_t reader, dds_loaned_sample_t *data, const struct writer_metadata *writer_md)
+{
+  dds_return_t ret = DDS_RETCODE_OK;
+  dds_entity * e;
+  if ((ret = dds_entity_pin (reader, &e)) < 0)
+    return ret;
+  else if (dds_entity_kind (e) != DDS_KIND_READER)
+  {
+    dds_entity_unpin (e);
+    return DDS_RETCODE_ILLEGAL_OPERATION;
+  }
+
+  dds_reader *dds_rd = (dds_reader *) e;
   struct ddsi_reader *rd = dds_rd->m_rd;
-  ddsi_guid_t pwrguid;
-  struct ddsi_proxy_writer *pwr;
-  struct ddsi_rd_pwr_match *m;
-  memset (&pwrguid, 0, sizeof (pwrguid));
+  struct ddsi_domaingv *gv = rd->e.gv;
+
+  ddsi_thread_state_awake (ddsi_lookup_thread_state (), gv);
   ddsrt_mutex_lock (&rd->e.lock);
 
-  rd->ddsi2direct_cb = cb;
-  rd->ddsi2direct_cbarg = cbarg;
-  while ((m = ddsrt_avl_lookup_succ_eq (&ddsi_rd_writers_treedef, &rd->writers, &pwrguid)) != NULL)
+  // FIXME: what if the sample is overwritten?
+  // if the sample is not matched to this reader, return ownership to the PSMX?
+
+  //samples incoming from local writers should be dropped
+  const ddsi_guid_t ddsi_guid = dds_guid_to_ddsi_guid (data->metadata->guid);
+  struct ddsi_entity_common *lookup_entity = NULL;
+  if ((lookup_entity = ddsi_entidx_lookup_guid_untyped (gv->entity_index, &ddsi_guid)) != NULL &&
+      lookup_entity->kind == DDSI_EK_WRITER)
+    goto drop_local;
+
+  struct ddsi_serdata * sd = ddsi_serdata_from_psmx (rd->type, data);
+  if (sd == NULL)
   {
-    /* have to be careful walking the tree -- pretty is different, but
-       I want to check this before I write a lookup_succ function. */
-    struct ddsi_rd_pwr_match *m_next;
-    ddsi_guid_t pwrguid_next;
-    pwrguid = m->pwr_guid;
-    if ((m_next = ddsrt_avl_find_succ (&ddsi_rd_writers_treedef, &rd->writers, m)) != NULL)
-      pwrguid_next = m_next->pwr_guid;
-    else
-    {
-      memset (&pwrguid_next, 0xff, sizeof (pwrguid_next));
-      pwrguid_next.entityid.u = (pwrguid_next.entityid.u & ~(uint32_t)0xff) | NN_ENTITYID_KIND_WRITER_NO_KEY;
-    }
-    ddsrt_mutex_unlock (&rd->e.lock);
-    if ((pwr = entidx_lookup_proxy_writer_guid (dds_entity->m_domain->gv.entity_index, &pwrguid)) != NULL)
-    {
-      ddsrt_mutex_lock (&pwr->e.lock);
-      pwr->ddsi2direct_cb = cb;
-      pwr->ddsi2direct_cbarg = cbarg;
-      ddsrt_mutex_unlock (&pwr->e.lock);
-    }
-    pwrguid = pwrguid_next;
-    ddsrt_mutex_lock (&rd->e.lock);
+    ret = DDS_RETCODE_ERROR;
+    goto fail_serdata;
   }
+
+  struct ddsi_writer_info wi;
+  if ((ret = get_writer_info (gv, &ddsi_guid, sd->statusinfo, writer_md, &wi)) != DDS_RETCODE_OK)
+    goto fail_get_writer_info;
+
+  struct ddsi_tkmap_instance * tk = ddsi_tkmap_lookup_instance_ref (gv->m_tkmap, sd);
+  if (tk == NULL)
+  {
+    ret = DDS_RETCODE_BAD_PARAMETER;
+    goto fail_get_writer_info;
+  }
+
+  if (!dds_rhc_store (dds_rd->m_rhc, &wi, sd, tk))
+  {
+    ret = DDS_RETCODE_ERROR;
+    goto fail_rhc_store;
+  }
+
+fail_rhc_store:
+  ddsi_tkmap_instance_unref (gv->m_tkmap, tk);
+fail_get_writer_info:
+  ddsi_serdata_unref (sd);
+drop_local:
+fail_serdata:
   ddsrt_mutex_unlock (&rd->e.lock);
-  dds_entity_unpin (dds_entity);
+  ddsi_thread_state_asleep (ddsi_lookup_thread_state ());
+  dds_entity_unpin (e);
+  return ret;
+}
+
+dds_return_t dds_reader_store_loaned_sample (dds_entity_t reader, dds_loaned_sample_t *data)
+{
+  return dds_reader_store_loaned_sample_impl (reader, data, NULL);
+}
+
+dds_return_t dds_reader_store_loaned_sample_wr_metadata (dds_entity_t reader, dds_loaned_sample_t *data, int32_t ownership_strength, bool autodispose_unregistered_instances, dds_duration_t lifespan_duration)
+{
+  struct writer_metadata writer_md = { .ownership_strength = ownership_strength, .autodispose_unregistered_instances = autodispose_unregistered_instances, .lifespan_duration = lifespan_duration };
+  return dds_reader_store_loaned_sample_impl (reader, data, &writer_md);
 }
 
 dds_entity_t dds_create_reader (dds_entity_t participant_or_subscriber, dds_entity_t topic, const dds_qos_t *qos, const dds_listener_t *listener)
 {
-  return dds_create_reader_int (participant_or_subscriber, topic, qos, listener, NULL);
+  return dds_create_reader_int (participant_or_subscriber, topic, NULL, qos, listener, NULL);
+}
+
+dds_entity_t dds_create_reader_guid (dds_entity_t participant_or_subscriber, dds_entity_t topic, const dds_qos_t *qos, const dds_listener_t *listener, dds_guid_t *guid)
+{
+  return dds_create_reader_int (participant_or_subscriber, topic, guid, qos, listener, NULL);
 }
 
 dds_entity_t dds_create_reader_rhc (dds_entity_t participant_or_subscriber, dds_entity_t topic, const dds_qos_t *qos, const dds_listener_t *listener, struct dds_rhc *rhc)
 {
   if (rhc == NULL)
     return DDS_RETCODE_BAD_PARAMETER;
-  return dds_create_reader_int (participant_or_subscriber, topic, qos, listener, rhc);
-}
-
-uint32_t dds_reader_lock_samples (dds_entity_t reader)
-{
-  dds_reader *rd;
-  uint32_t n;
-  if (dds_reader_lock (reader, &rd) != DDS_RETCODE_OK)
-    return 0;
-  n = dds_rhc_lock_samples (rd->m_rhc);
-  dds_reader_unlock (rd);
-  return n;
+  return dds_create_reader_int (participant_or_subscriber, topic, NULL, qos, listener, rhc);
 }
 
 dds_return_t dds_reader_wait_for_historical_data (dds_entity_t reader, dds_duration_t max_wait)
@@ -936,39 +894,4 @@ dds_entity_t dds_get_subscriber (dds_entity_t entity)
     dds_entity_unpin (e);
     return subh;
   }
-}
-
-dds_return_t dds__reader_data_allocator_init (const dds_reader *rd, dds_data_allocator_t *data_allocator)
-{
-#ifdef DDS_HAS_SHM
-  dds_iox_allocator_t *d = (dds_iox_allocator_t *) data_allocator->opaque.bytes;
-  ddsrt_mutex_init(&d->mutex);
-  if (NULL != rd->m_iox_sub)
-  {
-    d->kind = DDS_IOX_ALLOCATOR_KIND_SUBSCRIBER;
-    d->ref.sub = rd->m_iox_sub;
-  }
-  else
-  {
-    d->kind = DDS_IOX_ALLOCATOR_KIND_NONE;
-  }
-  return DDS_RETCODE_OK;
-#else
-  (void) rd;
-  (void) data_allocator;
-  return DDS_RETCODE_OK;
-#endif
-}
-
-dds_return_t dds__reader_data_allocator_fini (const dds_reader *rd, dds_data_allocator_t *data_allocator)
-{
-#ifdef DDS_HAS_SHM
-  dds_iox_allocator_t *d = (dds_iox_allocator_t *) data_allocator->opaque.bytes;
-  ddsrt_mutex_destroy(&d->mutex);
-  d->kind = DDS_IOX_ALLOCATOR_KIND_FINI;
-#else
-  (void) data_allocator;
-#endif
-  (void) rd;
-  return DDS_RETCODE_OK;
 }
