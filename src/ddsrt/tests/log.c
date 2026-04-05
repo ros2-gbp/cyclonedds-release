@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2021 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2021 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
@@ -38,7 +37,8 @@
    because it runs on the source rather than on the output of the C preprocessor
    (a reasonable decision in itself).  Therefore, just skip the body of each test. */
 
-#if __APPLE__ && !(defined MAC_OS_X_VERSION_10_13 && MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_13)
+#if (defined __APPLE__ && !(defined MAC_OS_X_VERSION_10_13 && MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_13)) || defined __QNXNTO__ || defined __VXWORKS__
+
 #define HAVE_FMEMOPEN 0
 #else
 #define HAVE_FMEMOPEN 1
@@ -145,7 +145,7 @@ static void setup(void)
 {
 #if HAVE_FMEMOPEN
   fh = fmemopen(NULL, 1024, "wb+");
-  CU_ASSERT_PTR_NOT_NULL_FATAL(fh);
+  CU_ASSERT_NEQ_FATAL (fh, NULL);
 #endif
 }
 
@@ -173,13 +173,13 @@ CU_Test(dds_log, only_log_file, .init=setup, .fini=teardown)
   (void)fseek(fh, 0L, SEEK_SET);
   nbytes = fread(buf, 1, sizeof(buf) - 1, fh);
   /* At least foobar should have been printed to the log file. */
-  CU_ASSERT_FATAL(nbytes > 6);
+  CU_ASSERT_GT_FATAL (nbytes, 6);
   buf[nbytes] = '\0';
   ptr = strstr(buf, "foobar\n");
-  CU_ASSERT_PTR_NOT_NULL(ptr);
+  CU_ASSERT_NEQ (ptr, NULL);
   /* No trace categories are enabled by default, verify trace callback was
      not invoked. */
-  CU_ASSERT_EQUAL(cnt, 0);
+  CU_ASSERT_EQ (cnt, 0);
 #endif
 }
 
@@ -199,15 +199,15 @@ CU_Test(dds_log, same_file, .init=setup, .fini=teardown)
   (void)fseek(fh, 0L, SEEK_SET);
   nbytes = fread(buf, 1, sizeof(buf) - 1, fh);
   /* At least foobar should have been written to the trace file. */
-  CU_ASSERT_FATAL(nbytes > 6);
+  CU_ASSERT_NEQ_FATAL (nbytes, 6);
   buf[nbytes] = '\0';
   ptr = strstr(buf, "foobar\n");
-  CU_ASSERT_PTR_NOT_NULL_FATAL(ptr);
+  CU_ASSERT_NEQ_FATAL (ptr, NULL);
   /* The message should only have been printed once, verify foobar does not
      occur again. */
   assert(ptr);
   ptr = strstr(ptr + 1, "foobar\n");
-  CU_ASSERT_PTR_NULL(ptr);
+  CU_ASSERT_EQ (ptr, NULL);
 #endif
 }
 
@@ -223,8 +223,8 @@ CU_Test(dds_log, same_sink_function, .fini=reset)
   dds_set_log_sink(&count, &log_cnt);
   dds_set_trace_sink(&count, &trace_cnt);
   DDS_ERROR("foo%s\n", "bar");
-  CU_ASSERT_EQUAL(log_cnt, 1);
-  CU_ASSERT_EQUAL(trace_cnt, 1);
+  CU_ASSERT_EQ (log_cnt, 1);
+  CU_ASSERT_EQ (trace_cnt, 1);
 #endif
 }
 
@@ -237,7 +237,7 @@ CU_Test(dds_log, exact_same_sink, .fini=reset)
   dds_set_log_sink(&count, &cnt);
   dds_set_trace_sink(&count, &cnt);
   DDS_ERROR("foo%s\n", "bar");
-  CU_ASSERT_EQUAL(cnt, 1);
+  CU_ASSERT_EQ (cnt, 1);
 #endif
 }
 
@@ -255,50 +255,50 @@ CU_Test(dds_log, no_sink, .init=setup, .fini=teardown)
   dds_set_log_file(fh);
   DDS_ERROR("foobar\n");
   ret = fseek(fh, 0L, SEEK_SET);
-  CU_ASSERT_EQUAL_FATAL(ret, 0);
+  CU_ASSERT_EQ_FATAL (ret, 0);
   buf[0] = '\0';
   cnt[0] = fread(buf, 1, sizeof(buf) - 1, fh);
   buf[cnt[0]] = '\0';
   ptr = strstr(buf, "foobar\n");
-  CU_ASSERT_PTR_NOT_NULL_FATAL(ptr);
+  CU_ASSERT_NEQ_FATAL (ptr, NULL);
 
   /* Register a custom sink and verify it receives the message. */
   ptr = NULL;
   dds_set_log_sink(&copy, &ptr);
   DDS_ERROR("foobaz\n");
-  CU_ASSERT_PTR_NOT_NULL_FATAL(ptr);
-  CU_ASSERT(strcmp(ptr, "foobaz\n") == 0);
+  CU_ASSERT_NEQ_FATAL (ptr, NULL);
+  CU_ASSERT_STREQ (ptr, "foobaz\n");
   ddsrt_free(ptr);
   ptr = NULL;
   /* Verify it has not been written to the stream. */
   ret = fseek(fh, 0L, SEEK_SET);
-  CU_ASSERT_EQUAL_FATAL(ret, 0);
+  CU_ASSERT_EQ_FATAL (ret, 0);
   buf[0] = '\0';
   cnt[1] = fread(buf, 1, sizeof(buf) - 1, fh);
   buf[cnt[1]] = '\0';
   ptr = strstr(buf, "foobaz\n");
-  CU_ASSERT_PTR_NULL_FATAL(ptr);
+  CU_ASSERT_EQ_FATAL (ptr, NULL);
 
   /* Unregister the custom sink and verify the default is restored. */
   dds_set_log_sink(0, NULL);
   ret = fseek(fh, 0, SEEK_SET);
-  CU_ASSERT_EQUAL_FATAL(ret, 0);
+  CU_ASSERT_EQ_FATAL (ret, 0);
   ptr = NULL;
   DDS_ERROR("foobaz\n");
   ret = fseek(fh, 0, SEEK_SET);
-  CU_ASSERT_EQUAL_FATAL(ret, 0);
-  CU_ASSERT_PTR_NULL(ptr);
+  CU_ASSERT_EQ_FATAL (ret, 0);
+  CU_ASSERT_EQ (ptr, NULL);
   buf[0]= '\0';
   cnt[1] = fread(buf, 1, sizeof(buf) - 1, fh);
 #ifdef _WIN32
   /* Write on Windows appends. */
-  CU_ASSERT_EQUAL(cnt[1], cnt[0] * 2);
+  CU_ASSERT_EQ (cnt[1], cnt[0] * 2);
 #else
-  CU_ASSERT_EQUAL(cnt[1], cnt[0]);
+  CU_ASSERT_EQ (cnt[1], cnt[0]);
 #endif
   buf[cnt[1]] = '\0';
   ptr = strstr(buf, "foobaz\n");
-  CU_ASSERT_PTR_NOT_NULL_FATAL(ptr);
+  CU_ASSERT_NEQ_FATAL (ptr, NULL);
 #endif
 }
 
@@ -312,13 +312,12 @@ CU_Test(dds_log, newline_terminates, .fini=reset)
 
   dds_set_log_sink(&copy, &msg);
   DDS_ERROR("foo");
-  CU_ASSERT_PTR_NULL_FATAL(msg);
+  CU_ASSERT_EQ_FATAL (msg, NULL);
   DDS_ERROR("bar");
-  CU_ASSERT_PTR_NULL_FATAL(msg);
+  CU_ASSERT_EQ_FATAL (msg, NULL);
   DDS_ERROR("baz\n");
-  CU_ASSERT_PTR_NOT_NULL_FATAL(msg);
-  assert(msg);
-  CU_ASSERT(strcmp(msg, "foobarbaz\n") == 0);
+  CU_ASSERT_NEQ_FATAL (msg, NULL);
+  CU_ASSERT_STREQ (msg, "foobarbaz\n");
   ddsrt_free(msg);
 #endif
 }
@@ -330,12 +329,11 @@ CU_Test(dds_log, disabled_categories_discarded, .fini=reset)
   char *msg = NULL;
   dds_set_log_sink(&copy, &msg);
   DDS_INFO("foobar\n");
-  CU_ASSERT_PTR_NULL_FATAL(msg);
+  CU_ASSERT_EQ_FATAL (msg, NULL);
   dds_set_log_mask(DDS_LC_FATAL | DDS_LC_ERROR | DDS_LC_INFO);
   DDS_INFO("foobar\n");
-  CU_ASSERT_PTR_NOT_NULL_FATAL(msg);
-  assert(msg);
-  CU_ASSERT(strcmp(msg, "foobar\n") == 0);
+  CU_ASSERT_NEQ_FATAL (msg, NULL);
+  CU_ASSERT_STREQ (msg, "foobar\n");
   ddsrt_free(msg);
 #endif
 }
@@ -395,16 +393,24 @@ CU_Test(dds_log, synchronous_sink_changes, .fini=reset)
   arg.mutex = &mutex;
   arg.cond = &cond;
 
-  ddsrt_mutex_lock(&mutex);
   dds_set_log_sink(&block, &arg);
+
+  ddsrt_mutex_lock(&mutex);
   ddsrt_threadattr_init(&tattr);
   ret = ddsrt_thread_create(&tid, "foobar", &tattr, &run, &arg);
-  CU_ASSERT_EQUAL_FATAL(ret, DDS_RETCODE_OK);
-  ddsrt_cond_wait(&cond, &mutex);
+  CU_ASSERT_EQ_FATAL (ret, DDS_RETCODE_OK);
+  while (arg.before == 0)
+    ddsrt_cond_wait(&cond, &mutex);
+  ddsrt_mutex_unlock(&mutex);
+  ddsrt_thread_join(tid, NULL);
+
   dds_set_log_sink(dummy, NULL);
 
-  CU_ASSERT(arg.before < arg.after);
-  CU_ASSERT(arg.after < dds_time());
+  CU_ASSERT_LT (arg.before, arg.after);
+  CU_ASSERT_LT (arg.after, dds_time());
+
+  ddsrt_cond_destroy(&cond);
+  ddsrt_mutex_destroy(&mutex);
 #endif
 }
 
@@ -471,8 +477,8 @@ CU_Theory((bool local, int mode, bool expect_in_trace), dds_log, fatal_aborts)
   if (sigsetjmp (abort_jmpbuf, 0) != 0)
   {
     sigaction (SIGABRT, &oldaction, NULL);
-    CU_ASSERT_STRING_EQUAL (abort_message, "oops\n");
-    CU_ASSERT_STRING_EQUAL (abort_message_trace, expect_in_trace ? "oops\n" : "");
+    CU_ASSERT_STREQ (abort_message, "oops\n");
+    CU_ASSERT_STREQ (abort_message_trace, expect_in_trace ? "oops\n" : "");
   }
   else
   {
@@ -503,7 +509,7 @@ CU_Theory((bool local, int mode, bool expect_in_trace), dds_log, fatal_aborts)
       DDS_FATAL ("oops\n");
     }
     sigaction (SIGABRT, &oldaction, NULL);
-    CU_ASSERT (0);
+    CU_FAIL ("deliberately asserting false here");
   }
 #else
   (void) local;

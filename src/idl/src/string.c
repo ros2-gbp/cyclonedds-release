@@ -1,14 +1,12 @@
-/*
- * Copyright(c) 2021 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2021 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 
 /*
  * Locale-independent C runtime functions, like strtoull_l and strtold_l, are
@@ -18,7 +16,7 @@
  * defined. strtoull_l and strtold_l are exported from stdlib.h, again if
  * _GNU_SOURCE is defined.
  *
- * FreeBSD and macOS export newlocale and freelocale from xlocale.h and
+ * freeBSD and macOS export newlocale and freelocale from xlocale.h and
  * export strtoull_l and strtold_l from xlocale.h if stdlib.h is included
  * before.
  *
@@ -54,6 +52,7 @@ typedef _locale_t locale_t;
 #endif
 
 #include "idl/stream.h"
+#include "idl/heap.h"
 #include "idl/string.h"
 
 static locale_t posix_locale(void);
@@ -91,11 +90,11 @@ int idl_isdigit(int chr, int base)
   int num = -1;
   assert(base > 0 && base < 36);
   if (chr >= '0' && chr <= '9')
-    num = chr - '0';
+    num = (char) chr - '0';
   else if (chr >= 'a' && chr <= 'z')
-    num = chr - 'a';
+    num = (char) chr - 'a';
   else if (chr >= 'A' && chr <= 'Z')
-    num = chr - 'A';
+    num = (char) chr - 'A';
   return num != -1 && num < base ? num : -1;
 }
 
@@ -136,14 +135,14 @@ char *idl_strndup(const char *str, size_t len)
   size_t n;
   for (n=0; n < len && str[n]; n++) ;
   assert(n <= len);
-  if (!(s = malloc(n + 1)))
+  if (!(s = idl_malloc(n + 1)))
     return NULL;
   memmove(s, str, n);
   s[n] = '\0';
   return s;
 }
 
-size_t idl_strlcpy(char * __restrict dest, const char * __restrict src, size_t size)
+size_t idl_strlcpy(char *dest, const char *src, size_t size)
 {
   size_t srclen;
 
@@ -222,13 +221,13 @@ int idl_asprintf(char **strp, const char *fmt, ...)
 
   if ((ret = idl_vsnprintf(buf, sizeof(buf), fmt, ap1)) >= 0) {
     len = (unsigned int)ret; /* +1 for null byte */
-    if ((str = malloc(len + 1)) == NULL) {
+    if ((str = idl_malloc(len + 1)) == NULL) {
       ret = -1;
     } else if ((ret = idl_vsnprintf(str, len + 1, fmt, ap2)) >= 0) {
       assert(((unsigned int)ret) == len);
       *strp = str;
     } else {
-      free(str);
+      idl_free(str);
     }
   }
 
@@ -237,7 +236,6 @@ int idl_asprintf(char **strp, const char *fmt, ...)
 
   return ret;
 }
-
 int idl_vasprintf(char **strp, const char *fmt, va_list ap)
 {
   int ret;
@@ -253,13 +251,13 @@ int idl_vasprintf(char **strp, const char *fmt, va_list ap)
 
   if ((ret = idl_vsnprintf(buf, sizeof(buf), fmt, ap)) >= 0) {
     len = (unsigned int)ret;
-    if ((str = malloc(len + 1)) == NULL) {
+    if ((str = idl_malloc(len + 1)) == NULL) {
       ret = -1;
     } else if ((ret = idl_vsnprintf(str, len + 1, fmt, ap2)) >= 0) {
       assert(((unsigned int)ret) == len);
       *strp = str;
     } else {
-      free(str);
+      idl_free(str);
     }
   }
 
@@ -357,6 +355,12 @@ FILE *idl_fopen(const char *pathname, const char *mode)
   return fopen(pathname, mode);
 #endif
 }
+
+int idl_fclose(FILE *fp)
+{
+  return fclose(fp);
+}
+
 
 #if defined _WIN32
 static DWORD locale = TLS_OUT_OF_INDEXES;

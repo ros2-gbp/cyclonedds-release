@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2021 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2021 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include "dds/ddsrt/heap.h"
 #include "dds/ddsrt/string.h"
 #include "dds/ddsrt/types.h"
@@ -16,7 +15,7 @@
 #include "dds/security/dds_security_api.h"
 #include "dds/security/core/dds_security_serialize.h"
 #include "dds/security/core/dds_security_utils.h"
-#include "dds/security/core/shared_secret.h"
+#include "dds/security/core/dds_security_shared_secret.h"
 #include "dds/security/openssl_support.h"
 #include "CUnit/CUnit.h"
 #include "CUnit/Test.h"
@@ -77,7 +76,7 @@ static void prepare_participant_security_attributes(DDS_Security_ParticipantSecu
 
 static int register_local_participant(void)
 {
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   DDS_Security_PermissionsHandle participant_permissions = 3; //valid dummy value
   DDS_Security_PropertySeq participant_properties;
   DDS_Security_ParticipantSecurityAttributes participant_security_attributes;
@@ -104,7 +103,7 @@ static int register_local_participant(void)
 
 static int register_remote_participant(void)
 {
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   DDS_Security_PermissionsHandle remote_participant_permissions = 5;
 
   remote_crypto_handle =
@@ -125,7 +124,7 @@ static int register_remote_participant(void)
 static int create_crypto_tokens(void)
 {
   DDS_Security_boolean status;
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   status = crypto->crypto_key_exchange->create_local_participant_crypto_tokens(
       crypto->crypto_key_exchange,
       &tokens,
@@ -141,7 +140,7 @@ static int create_crypto_tokens(void)
 static void unregister_participants(void)
 {
   DDS_Security_boolean status;
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
 
   if (tokens._length != 0)
   {
@@ -169,14 +168,14 @@ static void suite_set_remote_participant_crypto_tokens_init(void)
 {
   allocate_shared_secret();
 
-  CU_ASSERT_FATAL ((plugins = load_plugins(
-                      NULL    /* Access Control */,
-                      NULL    /* Authentication */,
-                      &crypto /* Cryptograpy    */,
-                      NULL)) != NULL);
-  CU_ASSERT_EQUAL_FATAL (register_local_participant(), 0);
-  CU_ASSERT_EQUAL_FATAL (register_remote_participant(), 0);
-  CU_ASSERT_EQUAL_FATAL (create_crypto_tokens(), 0);
+  CU_ASSERT_NEQ_FATAL ((plugins = load_plugins(
+    NULL    /* Access Control */,
+    NULL    /* Authentication */,
+    &crypto /* Cryptograpy    */,
+    NULL)), NULL);
+  CU_ASSERT_EQ_FATAL (register_local_participant(), 0);
+  CU_ASSERT_EQ_FATAL (register_remote_participant(), 0);
+  CU_ASSERT_EQ_FATAL (create_crypto_tokens(), 0);
 }
 
 static void suite_set_remote_participant_crypto_tokens_fini(void)
@@ -199,15 +198,12 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, happy_day, .init = 
   DDS_Security_boolean result;
 
   /* Dummy (even un-initialized) data for now. */
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
 
   /* Check if we actually have the validate_local_identity() function. */
-  CU_ASSERT_FATAL(crypto != NULL);
-  assert(crypto != NULL);
-  CU_ASSERT_FATAL(crypto->crypto_key_exchange != NULL);
-  assert(crypto->crypto_key_exchange != NULL);
-  CU_ASSERT_FATAL(crypto->crypto_key_exchange->set_remote_participant_crypto_tokens != NULL);
-  assert(crypto->crypto_key_exchange->set_remote_participant_crypto_tokens != 0);
+  CU_ASSERT_NEQ_FATAL (crypto, NULL);
+  CU_ASSERT_NEQ_FATAL (crypto->crypto_key_exchange, NULL);
+  CU_ASSERT_NEQ_FATAL (crypto->crypto_key_exchange->set_remote_participant_crypto_tokens, NULL);
 
   memset(&exception, 0, sizeof(DDS_Security_SecurityException));
 
@@ -221,9 +217,9 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, happy_day, .init = 
   if (!result)
     printf("set_local_participant_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
 
-  CU_ASSERT_FATAL(result);
-  CU_ASSERT(exception.code == 0);
-  CU_ASSERT(exception.message == NULL);
+  CU_ASSERT_FATAL (result);
+  CU_ASSERT_EQ (exception.code, 0);
+  CU_ASSERT_EQ (exception.message, NULL);
   reset_exception(&exception);
 }
 
@@ -232,16 +228,13 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, invalid_args, .init
   DDS_Security_boolean result;
 
   /* Dummy (even un-initialized) data for now. */
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   DDS_Security_PropertySeq participant_properties;
 
   /* Check if we actually have the validate_local_identity() function. */
-  CU_ASSERT_FATAL(crypto != NULL);
-  assert(crypto != NULL);
-  CU_ASSERT_FATAL(crypto->crypto_key_exchange != NULL);
-  assert(crypto->crypto_key_exchange != NULL);
-  CU_ASSERT_FATAL(crypto->crypto_key_exchange->create_local_participant_crypto_tokens != NULL);
-  assert(crypto->crypto_key_exchange->create_local_participant_crypto_tokens != 0);
+  CU_ASSERT_NEQ_FATAL (crypto, NULL);
+  CU_ASSERT_NEQ_FATAL (crypto->crypto_key_exchange, NULL);
+  CU_ASSERT_NEQ_FATAL (crypto->crypto_key_exchange->create_local_participant_crypto_tokens, NULL);
 
   memset(&exception, 0, sizeof(DDS_Security_SecurityException));
   memset(&participant_properties, 0, sizeof(participant_properties));
@@ -256,9 +249,9 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, invalid_args, .init
   if (!result)
     printf("set_local_participant_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
   reset_exception(&exception);
 
   /* invalid local_crypto_handle = DDS_SECURITY_HANDLE_NIL */
@@ -271,9 +264,9 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, invalid_args, .init
   if (!result)
     printf("set_remote_participant_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
   reset_exception(&exception);
 
   /* invalid remote_crypto_handle = DDS_SECURITY_HANDLE_NIL */
@@ -286,9 +279,9 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, invalid_args, .init
   if (!result)
     printf("set_remote_participant_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
   reset_exception(&exception);
 
   /* invalid local_crypto_handle = 1 */
@@ -301,9 +294,9 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, invalid_args, .init
   if (!result)
     printf("set_remote_participant_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
   reset_exception(&exception);
 
   /* invalid remote_crypto_handle = 1 */
@@ -316,9 +309,9 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, invalid_args, .init
   if (!result)
     printf("set_remote_participant_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
   reset_exception(&exception);
 }
 
@@ -327,18 +320,15 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, invalid_tokens, .in
   DDS_Security_boolean result;
 
   /* Dummy (even un-initialized) data for now. */
-  DDS_Security_SecurityException exception = {NULL, 0, 0};
+  DDS_Security_SecurityException exception = DDS_SECURITY_EXCEPTION_INIT;
   DDS_Security_PropertySeq participant_properties;
   DDS_Security_ParticipantCryptoTokenSeq invalid_tokens;
   DDS_Security_KeyMaterial_AES_GCM_GMAC keymat;
 
   /* Check if we actually have the validate_local_identity() function. */
-  CU_ASSERT_FATAL(crypto != NULL);
-  assert(crypto != NULL);
-  CU_ASSERT_FATAL(crypto->crypto_key_exchange != NULL);
-  assert(crypto->crypto_key_exchange != NULL);
-  CU_ASSERT_FATAL(crypto->crypto_key_exchange->create_local_participant_crypto_tokens != NULL);
-  assert(crypto->crypto_key_exchange->create_local_participant_crypto_tokens != 0);
+  CU_ASSERT_NEQ_FATAL (crypto, NULL);
+  CU_ASSERT_NEQ_FATAL (crypto->crypto_key_exchange, NULL);
+  CU_ASSERT_NEQ_FATAL (crypto->crypto_key_exchange->create_local_participant_crypto_tokens, NULL);
 
   memset(&exception, 0, sizeof(DDS_Security_SecurityException));
   memset(&participant_properties, 0, sizeof(participant_properties));
@@ -356,9 +346,9 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, invalid_tokens, .in
   if (!result)
     printf("set_local_participant_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
   reset_exception(&exception);
 
   /* DDS_Security_ParticipantCryptoTokenSeq with empty token */
@@ -373,9 +363,9 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, invalid_tokens, .in
   if (!result)
     printf("set_local_participant_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
   reset_exception(&exception);
 
   /* invalid token class id */
@@ -389,9 +379,9 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, invalid_tokens, .in
   if (!result)
     printf("set_local_participant_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
   ddsrt_free(invalid_tokens._buffer[0].class_id);
   reset_exception(&exception);
 
@@ -406,9 +396,9 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, invalid_tokens, .in
   if (!result)
     printf("set_local_participant_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
   reset_exception(&exception);
 
   /* no key material, property is empty */
@@ -423,9 +413,9 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, invalid_tokens, .in
   if (!result)
     printf("set_local_participant_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
   reset_exception(&exception);
 
   /* invalid property name */
@@ -439,9 +429,9 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, invalid_tokens, .in
   if (!result)
     printf("set_local_participant_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
   ddsrt_free(invalid_tokens._buffer[0].binary_properties._buffer[0].name);
   reset_exception(&exception);
 
@@ -456,9 +446,9 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, invalid_tokens, .in
   if (!result)
     printf("set_local_participant_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
   reset_exception(&exception);
 
   /* empty key material */
@@ -474,9 +464,9 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, invalid_tokens, .in
   if (!result)
     printf("set_local_participant_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
   reset_exception(&exception);
 
   keymat.transformation_kind[3] = 5;
@@ -494,9 +484,9 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, invalid_tokens, .in
   if (!result)
     printf("set_local_participant_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
   reset_exception(&exception);
 
   keymat.transformation_kind[3] = 2;
@@ -516,9 +506,9 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, invalid_tokens, .in
   if (!result)
     printf("set_local_participant_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
   reset_exception(&exception);
 
   keymat.master_salt._length = 32;
@@ -536,9 +526,9 @@ CU_Test(ddssec_builtin_set_remote_participant_crypto_tokens, invalid_tokens, .in
   if (!result)
     printf("set_local_participant_crypto_tokens: %s\n", exception.message ? exception.message : "Error message missing");
 
-  CU_ASSERT(!result);
-  CU_ASSERT(exception.code != 0);
-  CU_ASSERT(exception.message != NULL);
+  CU_ASSERT (!result);
+  CU_ASSERT_NEQ (exception.code, 0);
+  CU_ASSERT_NEQ (exception.message, NULL);
   reset_exception(&exception);
 
   invalid_tokens._buffer[0].binary_properties._buffer[0].value._length = 0;

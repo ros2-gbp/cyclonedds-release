@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2019 to 2021 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2019 to 2021 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #define _ISOC99_SOURCE
 #include <stdio.h>
 #include <string.h>
@@ -23,6 +22,7 @@
 #include "dds/ddsrt/threads.h"
 #include "dds/ddsrt/string.h"
 #include "dds/ddsrt/rusage.h"
+#include "dds/ddsrt/misc.h"
 
 #include "cputime.h"
 #include "ddsperf_types.h"
@@ -80,7 +80,7 @@ struct record_cputime_state_thr {
 
 struct record_cputime_state {
   bool supported;
-  dds_time_t tprev;
+  ddsrt_hrtime_t tprev;
   uint32_t vcswprev;
   uint32_t ivcswprev;
   size_t nthreads;
@@ -113,7 +113,7 @@ static bool above_threshold (double *max, double *du_skip, double *ds_skip, doub
   }
 }
 
-bool record_cputime (struct record_cputime_state *state, const char *prefix, dds_time_t tnow)
+bool record_cputime (struct record_cputime_state *state, const char *prefix, ddsrt_hrtime_t tnow)
 {
   if (state == NULL)
     return false;
@@ -126,7 +126,7 @@ bool record_cputime (struct record_cputime_state *state, const char *prefix, dds
   }
   double max = 0;
   double du_skip = 0.0, ds_skip = 0.0;
-  const double dt = (double) (tnow - state->tprev) / 1e9;
+  const double dt = (double) (tnow.v - state->tprev.v) / 1e9;
   bool some_above = false;
 
   state->s.maxrss = (double) usage.maxrss;
@@ -205,7 +205,7 @@ struct record_cputime_state *record_cputime_new (dds_entity_t wr)
   ddsrt_rusage_t usage;
   if (ddsrt_getrusage (DDSRT_RUSAGE_SELF, &usage) < 0)
     usage.nvcsw = usage.nivcsw = 0;
-  state->tprev = dds_time ();
+  state->tprev = ddsrt_time_highres ();
   state->wr = wr;
   state->vcswprev = (uint32_t) usage.nvcsw;
   state->ivcswprev = (uint32_t) usage.nivcsw;
@@ -227,11 +227,20 @@ struct record_cputime_state *record_cputime_new (dds_entity_t wr)
   char hostname[128];
   if (ddsrt_gethostname (hostname, sizeof (hostname)) != DDS_RETCODE_OK)
     strcpy (hostname, "?");
-  state->s.hostname = ddsrt_strdup (hostname);
+DDSRT_WARNING_MSVC_OFF(4996);
+  state->s.hostname = strdup (hostname);
+DDSRT_WARNING_MSVC_ON(4996);
+  assert (state->s.hostname);
   state->s.pid = (uint32_t) ddsrt_getpid ();
   state->s.cpu._length = 0;
   state->s.cpu._maximum = (uint32_t) state->nthreads;
-  state->s.cpu._buffer = ddsrt_malloc (state->s.cpu._maximum * sizeof (*state->s.cpu._buffer));
+  if (state->s.cpu._maximum > 0)
+  {
+    state->s.cpu._buffer = malloc (state->s.cpu._maximum * sizeof (*state->s.cpu._buffer));
+    assert (state->s.cpu._buffer);
+  }
+  else
+    state->s.cpu._buffer = NULL;
   state->s.cpu._release = false;
   return state;
 }
@@ -241,16 +250,16 @@ void record_cputime_free (struct record_cputime_state *state)
   if (state)
   {
     free (state->threads);
-    ddsrt_free (state->s.hostname);
+    free (state->s.hostname);
     /* we alias thread names in state->s->cpu._buffer, so no need to free */
-    ddsrt_free (state->s.cpu._buffer);
+    free (state->s.cpu._buffer);
     free (state);
   }
 }
 
 #else
 
-bool record_cputime (struct record_cputime_state *state, const char *prefix, dds_time_t tnow)
+bool record_cputime (struct record_cputime_state *state, const char *prefix, ddsrt_hrtime_t tnow)
 {
   (void) state;
   (void) prefix;

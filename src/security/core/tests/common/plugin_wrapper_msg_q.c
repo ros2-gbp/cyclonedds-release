@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2020 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2020 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <string.h>
 #include <stdio.h>
 #include "dds/dds.h"
@@ -29,7 +28,7 @@ void insert_message(struct message_queue *queue, struct message *msg)
     queue->tail->next = msg;
   queue->tail = msg;
 
-  ddsrt_cond_signal(&queue->cond);
+  ddsrt_cond_mtime_signal(&queue->cond);
   ddsrt_mutex_unlock(&queue->lock);
 }
 
@@ -71,7 +70,7 @@ void init_message_queue(struct message_queue *queue)
   queue->head = NULL;
   queue->tail = NULL;
   ddsrt_mutex_init(&queue->lock);
-  ddsrt_cond_init(&queue->cond);
+  ddsrt_cond_mtime_init(&queue->cond);
 }
 
 void deinit_message_queue(struct message_queue *queue)
@@ -83,7 +82,7 @@ void deinit_message_queue(struct message_queue *queue)
     delete_message(msg);
     msg = queue->head;
   }
-  ddsrt_cond_destroy(&queue->cond);
+  ddsrt_cond_mtime_destroy(&queue->cond);
   ddsrt_mutex_destroy(&queue->lock);
 }
 
@@ -95,7 +94,7 @@ int message_matched(struct message *msg, message_kind_t kind, DDS_Security_Ident
     (!hsHandle || msg->hsHandle == hsHandle);
 }
 
-enum take_message_result take_message(struct message_queue *queue, message_kind_t kind, DDS_Security_IdentityHandle lidHandle, DDS_Security_IdentityHandle ridHandle, DDS_Security_IdentityHandle hsHandle, dds_time_t abstimeout, struct message **msg)
+enum take_message_result take_message(struct message_queue *queue, message_kind_t kind, DDS_Security_IdentityHandle lidHandle, DDS_Security_IdentityHandle ridHandle, DDS_Security_IdentityHandle hsHandle, ddsrt_mtime_t abstimeout, struct message **msg)
 {
   struct message *cur, *prev;
   enum take_message_result ret = TAKE_MESSAGE_OK;
@@ -125,7 +124,7 @@ enum take_message_result take_message(struct message_queue *queue, message_kind_
     }
     if (*msg == NULL)
     {
-      if (!ddsrt_cond_waituntil(&queue->cond, &queue->lock, abstimeout))
+      if (!ddsrt_cond_mtime_waituntil(&queue->cond, &queue->lock, abstimeout))
         ret = queue->head ? TAKE_MESSAGE_TIMEOUT_NONEMPTY : TAKE_MESSAGE_TIMEOUT_EMPTY;
     }
   } while (ret == TAKE_MESSAGE_OK && *msg == NULL);

@@ -43,6 +43,15 @@ install(
   DESTINATION "${CMAKE_INSTALL_EXAMPLESDIR}/throughput"
   COMPONENT dev)
 
+if (ENABLE_TYPELIB)
+  install(
+    FILES
+      dyntype/dyntype.c
+      dyntype/CMakeLists.txt
+    DESTINATION "${CMAKE_INSTALL_EXAMPLESDIR}/dyntype"
+    COMPONENT dev)
+endif ()
+
 if (ENABLE_TOPIC_DISCOVERY)
   install(
     FILES
@@ -53,22 +62,16 @@ if (ENABLE_TOPIC_DISCOVERY)
     COMPONENT dev)
   install(
     FILES
+      dynsub/variouspub_types.idl
       dynsub/dynsub.c
+      dynsub/dynsub.h
+      dynsub/type_cache.c
+      dynsub/print_sample.c
+      dynsub/print_type.c
+      dynsub/variouspub.c
       dynsub/CMakeLists.txt
       dynsub/readme.rst
     DESTINATION "${CMAKE_INSTALL_EXAMPLESDIR}/dynsub"
-    COMPONENT dev)
-endif ()
-
-if (ENABLE_SHM)
-  install(
-    FILES
-      shm_throughput/ShmThroughput.idl
-      shm_throughput/shmpublisher.c
-      shm_throughput/shmsubscriber.c
-      shm_throughput/CMakeLists.txt
-      shm_throughput/readme.rst
-    DESTINATION "${CMAKE_INSTALL_EXAMPLESDIR}/shm_throughput"
     COMPONENT dev)
 endif ()
 
@@ -79,6 +82,6 @@ if (ENABLE_TOPIC_DISCOVERY)
   add_subdirectory(listtopics)
   add_subdirectory(dynsub)
 endif ()
-if (ENABLE_SHM)
-  add_subdirectory(shm_throughput)
+if (ENABLE_TYPELIB)
+  add_subdirectory(dyntype)
 endif ()

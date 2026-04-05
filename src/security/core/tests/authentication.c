@@ -1,14 +1,13 @@
-/*
- * Copyright(c) 2006 to 2022 ZettaScale Technology and others
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
- * v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
- *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
- */
+// Copyright(c) 2006 to 2022 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 #include <stdlib.h>
 #include <assert.h>
 
@@ -22,10 +21,9 @@
 #include "dds/ddsrt/heap.h"
 #include "dds/ddsrt/io.h"
 #include "dds/ddsrt/string.h"
-#include "dds/ddsi/ddsi_config_impl.h"
 #include "dds/ddsi/ddsi_domaingv.h"
-#include "dds/ddsi/q_misc.h"
 #include "dds/ddsi/ddsi_xqos.h"
+#include "ddsi__misc.h"
 
 #include "dds/security/dds_security_api.h"
 
@@ -54,11 +52,6 @@ static const char *config =
     "    <ExternalDomainId>0</ExternalDomainId>"
     "    <Tag>\\${CYCLONEDDS_PID}</Tag>"
     "  </Discovery>"
-#ifdef DDS_HAS_SHM
-    "  <SharedMemory>"
-    "    <Enable>false</Enable>"
-    "  </SharedMemory>"
-#endif
     "  <Security>"
     "    <Authentication>"
     "      <Library finalizeFunction=\"finalize_test_authentication_wrapped\" initFunction=\"init_test_authentication_wrapped\" path=\"" WRAPPERLIB_PATH("dds_security_authentication_wrapper") "\"/>"
@@ -129,17 +122,17 @@ static void init_domain_pp (bool pp_secure, bool exp_pp_fail,
       { NULL, NULL, 0 }
     };
     conf = ddsrt_expand_vars_sh (config, &expand_lookup_vars_env, config_vars);
-    CU_ASSERT_EQUAL_FATAL (expand_lookup_unmatched (config_vars), 0);
+    CU_ASSERT_EQ_FATAL (expand_lookup_unmatched (config_vars), 0);
   }
   else
   {
     struct kvp config_vars[] = { { NULL, NULL, 0 } };
     conf = ddsrt_expand_vars_sh (config_non_secure, &expand_lookup_vars_env, config_vars);
-    CU_ASSERT_EQUAL_FATAL (expand_lookup_unmatched (config_vars), 0);
+    CU_ASSERT_EQ_FATAL (expand_lookup_unmatched (config_vars), 0);
   }
   *domain = dds_create_domain (domain_id, conf);
   *pp = dds_create_participant (domain_id, NULL, NULL);
-  CU_ASSERT_EQUAL_FATAL (exp_pp_fail, *pp <= 0);
+  CU_ASSERT_EQ_FATAL (exp_pp_fail, *pp <= 0);
   ddsrt_free (conf);
 }
 
@@ -155,11 +148,11 @@ static void authentication_init(
 static void authentication_fini(bool delete_pp1, bool delete_pp2, void * res[], size_t nres)
 {
   if (delete_pp1)
-    CU_ASSERT_EQUAL_FATAL (dds_delete (g_participant1), DDS_RETCODE_OK);
+    CU_ASSERT_EQ_FATAL (dds_delete (g_participant1), DDS_RETCODE_OK);
   if (delete_pp2)
-    CU_ASSERT_EQUAL_FATAL (dds_delete (g_participant2), DDS_RETCODE_OK);
-  CU_ASSERT_EQUAL_FATAL (dds_delete (g_domain1), DDS_RETCODE_OK);
-  CU_ASSERT_EQUAL_FATAL (dds_delete (g_domain2), DDS_RETCODE_OK);
+    CU_ASSERT_EQ_FATAL (dds_delete (g_participant2), DDS_RETCODE_OK);
+  CU_ASSERT_EQ_FATAL (dds_delete (g_domain1), DDS_RETCODE_OK);
+  CU_ASSERT_EQ_FATAL (dds_delete (g_domain2), DDS_RETCODE_OK);
   if (res != NULL)
   {
     for (size_t i = 0; i < nres; i++)
@@ -346,17 +339,25 @@ CU_Test(ddssec_authentication, unauthenticated_pp)
 
   print_test_msg ("writing sample for plain topic\n");
   dds_entity_t pub, sub, pub_tp, sub_tp, wr, rd;
+  print_test_msg (".. init\n");
   rd_wr_init (g_participant1, &pub, &pub_tp, &wr, g_participant2, &sub, &sub_tp, &rd, topic_name_plain);
+  print_test_msg (".. sync\n");
   sync_writer_to_readers(g_participant1, wr, 1, dds_time() + DDS_SECS(5));
+  print_test_msg (".. write/read\n");
   write_read_for (wr, g_participant2, rd, DDS_MSECS (10), false, false);
 
   print_test_msg ("writing sample for secured topic\n");
   dds_entity_t spub, ssub, spub_tp, ssub_tp, swr, srd;
+  print_test_msg (".. init\n");
   rd_wr_init (g_participant1, &spub, &spub_tp, &swr, g_participant2, &ssub, &ssub_tp, &srd, topic_name_secure);
+  print_test_msg (".. sync\n");
   sync_writer_to_readers(g_participant1, swr, 0, dds_time() + DDS_SECS(2));
+  print_test_msg (".. write/read\n");
   write_read_for (swr, g_participant2, srd, DDS_MSECS (10), false, true);
 
+  print_test_msg ("authentication_fini\n");
   authentication_fini (true, true, (void * []) { gov_config, gov_topic_rules, topic_rule_sec, topic_rule_plain, grants[0], perm_config, ca, id1_subj, id1 }, 9);
+  print_test_msg ("done\n");
 }
 
 CU_TheoryDataPoints(ddssec_authentication, crl) = {
