@@ -236,7 +236,7 @@ tracks:
     last_version: 11.0.1
     name: cyclonedds
     patches: null
-    release_inc: '1'
+    release_inc: '2'
     release_repo_url: https://github.com/ros2-gbp/cyclonedds-release.git
     release_tag: :{version}
     ros_distro: rolling
