@@ -1,0 +1,26 @@
+From 78839f8a82034d3c0acd94290c9c308e89e66fe8 Mon Sep 17 00:00:00 2001
+From: Shane Loretz <sloretz@intrinsic.ai>
+Date: Wed, 29 Apr 2026 16:46:58 +0000
+Subject: [PATCH] Remove punctuation from maintainer name
+
+Signed-off-by: Shane Loretz <sloretz@intrinsic.ai>
+---
+ package.xml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/package.xml b/package.xml
+index 4157e2bffadc..f12d5594b4e4 100644
+--- a/package.xml
++++ b/package.xml
+@@ -4,7 +4,7 @@
+     <name>cyclonedds</name>
+     <version>11.0.1</version>
+     <description>Eclipse Cyclone DDS is a very performant and robust open-source DDS implementation. Cyclone DDS is developed completely in the open as an Eclipse IoT project.</description>
+-    <maintainer email="cyclonedds-dev@eclipse.org">Eclipse Foundation, Inc.</maintainer>
++    <maintainer email="cyclonedds-dev@eclipse.org">Eclipse Foundation Inc</maintainer>
+     <license>Eclipse Public License 2.0</license>
+     <license>Eclipse Distribution License 1.0</license>
+ 
+-- 
+2.53.0
+
