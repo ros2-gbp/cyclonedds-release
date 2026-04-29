@@ -1,3 +1,26 @@
+## cyclonedds (rolling) - 11.0.1-3
+
+The packages in the `cyclonedds` repository were released into the `rolling` distro by running `/home/cottsay/infra_ws/install/bin/bloom-release -r rolling cyclonedds` on `Wed, 29 Apr 2026 17:40:06 -0000`
+
+The `cyclonedds` package was released.
+
+Version of package(s) in repository `cyclonedds`:
+
+- upstream repository: https://github.com/eclipse-cyclonedds/cyclonedds.git
+- release repository: https://github.com/ros2-gbp/cyclonedds-release.git
+- rosdistro version: `11.0.1-2`
+- old version: `11.0.1-2`
+- new version: `11.0.1-3`
+
+Versions of tools used:
+
+- bloom version: `0.14.0`
+- catkin_pkg version: `1.1.0`
+- rosdep version: `0.26.0`
+- rosdistro version: `1.0.1`
+- vcstools version: `0.1.42`
+
+
 ## cyclonedds (rolling) - 11.0.1-1
 
 The packages in the `cyclonedds` repository were released into the `rolling` distro by running `/usr/bin/bloom-release --rosdistro rolling cyclonedds -e` on `Sun, 05 Apr 2026 20:33:11 -0000`
